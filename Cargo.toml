@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "rusty_ai_core",
+    "rusty_ai_autograd",
+    "rusty_ai_nn",
+    "rusty_ai_ml",
+    "rusty_ai_llm",
+    "rusty_ai",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+matrixmultiply = "0.3"
