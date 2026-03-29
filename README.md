@@ -15,6 +15,9 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | **NN** | `Linear`, GELU, `layer_norm` / `layer_norm_affine` (γ/β wie PyTorch), `ones_scale` / `zeros_bias`, Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
 | **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt` (Tensor), `TrainableMiniGpt` (Autograd), `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
+| **Checkpoints** | `save_minigpt_checkpoint` / `load_minigpt_checkpoint` (`config.json` + `model.safetensors`); optional Feature **`hf-hub`** zum Herunterladen aus dem Hugging Face Hub |
+| **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — Mapping von HF-GPT-2-Gewichten (fused QKV → getrennte Matrizen); **Tokenizer:** RustyAi bleibt Byte-Level; OpenAI-BPE ist separat nötig für identische Tokenisierung |
+| **Candle-Backend** | Crate `rusty_ai_backend_candle`: CPU- oder CUDA-**Matmul**, **FP8 E4M3**-Hilfen, Referenz-**All-Reduce-Mittelwert** für Datenparallelität; optional `rusty_ai` mit `--features candle` bzw. `candle-cuda` |
 
 ---
 
@@ -75,9 +78,10 @@ cargo run -p rusty_ai --example train_mini_gpt
 | `rusty_ai_autograd` | `Variable`, Rückwärtsrechnung |
 | `rusty_ai_nn` | Schichten & Aktivierungen |
 | `rusty_ai_ml` | Optimierer & Daten-Helfer |
-| `rusty_ai_llm` | Transformer, Tokenizer, Generierung |
+| `rusty_ai_llm` | Transformer, Tokenizer, Generierung, safetensors-Checkpoints, GPT-2-Mapping |
+| `rusty_ai_backend_candle` | Optional: Candle (CPU/CUDA), FP8, verteilte Referenz-Ops |
 
-Abhängigkeit der Bibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/matrixmultiply) für schnelles CPU-Matmul.
+Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/matrixmultiply) für schnelles CPU-Matmul.
 
 ---
 
@@ -85,8 +89,10 @@ Abhängigkeit der Bibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/
 
 | Ressource | Inhalt |
 | --------- | ------ |
-| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, Mini-GPT-Training, LLM-Inferenz mit KV-Cache), Grenzen, Glossar |
-| **[`docs/README.md`](docs/README.md)** | Kurzüberblick über die Dokumentation im Ordner `docs/` |
+| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, Mini-GPT-Training, LLM-Inferenz mit KV-Cache), Checkpoints/GPT-2/Candle, Grenzen, Glossar |
+| **[`docs/README.md`](docs/README.md)** | Kurzüberblick und Verweise auf weiterführende Dateien |
+| **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht zur Scope-Erweiterung (Tests, Korrekturen) |
+| **[`rusty_ai_backend_candle/README.md`](rusty_ai_backend_candle/README.md)** | Optionales Candle-Backend (Features, API-Kurzüberblick) |
 
 Rust-API-Dokumentation lokal erzeugen:
 
@@ -96,9 +102,11 @@ cargo doc --workspace --no-deps --open
 
 ---
 
-## Nicht im Scope (v1)
+## Erweiterter Scope (experimentell)
 
-Verteiltes Training, GPU-Kernels, FP8, Laden beliebiger Hugging-Face-Checkpoints. Die Basis ist **CPU-first** und für Lernzwecke sowie Prototypen gedacht.
+- **Training** bleibt in den Kern-Crates **CPU-Autograd** (`TrainableMiniGpt`). GPU/FP8 und größere Matmuls laufen über das **optionale** Candle-Crate; produktives Multi-GPU-Training nutzt typischerweise NCCL (Candle-Feature `nccl`) oder externe Orchestrierung.
+- **Checkpoints:** Eigenes Format `config.json` + `model.safetensors` (RustyAi-`model_type`: `rusty_ai_minigpt`).
+- **Hugging Face:** GPT-2-`safetensors` können mit `load_minigpt_from_gpt2_safetensors` geladen werden, wenn die Hyperparameter zur gewählten `MiniGptConfig` passen. **`load_minigpt_from_hf`** (Feature `hf-hub` auf `rusty_ai` bzw. `rusty_ai_llm`) lädt **RustyAi**-Checkpoints aus einem Repo, nicht beliebige GPT-2-Archivformate.
 
 ---
 

@@ -1,11 +1,14 @@
-//! Decoder-only Transformer, byte-level tokenization, and text generation (CPU tensors).
+//! Decoder-only Transformer, byte-level tokenization, and text generation.
+//! Core weights use [`rusty_ai_core::Tensor`] on CPU; see `checkpoint` and `gpt2_hf` for safetensors / Hub.
 //!
 //! Inference uses plain [`rusty_ai_core::Tensor`] weights ([`MiniGpt`]). Training uses
 //! [`TrainableMiniGpt`] with [`rusty_ai_autograd::Variable`] (same forward numerically).
 
 mod attention;
 mod attention_var;
+mod checkpoint;
 mod generate;
+mod gpt2_hf;
 mod heads;
 mod kv_cache;
 mod linear_tensor;
@@ -19,6 +22,15 @@ pub use generate::{generate, sample_token};
 pub use heads::{merge_heads, split_heads};
 pub use kv_cache::{KvCache, LayerKv};
 pub use linear_tensor::linear_3d;
+pub use checkpoint::{
+    load_minigpt_checkpoint, mini_gpt_from_state_dict, minigpt_to_safetensors_bytes,
+    save_minigpt_checkpoint, state_dict, tensor_from_safetensors_view, CheckpointError,
+    MiniGptConfigFile,
+};
+pub use gpt2_hf::{gpt2_state_dict_to_minigpt, load_minigpt_from_gpt2_safetensors, Gpt2MappingError};
 pub use model::{DecoderBlock, MiniGpt, MiniGptConfig};
 pub use tokenizer::ByteTokenizer;
 pub use trainable::{DecoderBlockTrainable, TrainableMiniGpt};
+
+#[cfg(feature = "hf-hub")]
+pub use checkpoint::load_minigpt_from_hf;

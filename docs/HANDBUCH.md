@@ -8,7 +8,7 @@ Dieses Handbuch beschreibt die **Architektur**, die **Module** des Workspaces un
 
 ### 1.1 Zielsetzung
 
-RustyAi verbindet **klassisches überwachtes Lernen** (kleine MLPs, Optimierer) mit **LLM-Bausteinen** (Causal Attention, Decoder-Stack, Sampling) in einem einheitlichen Rust-Workspace. Die Implementierung legt Wert auf **Nachvollziehbarkeit**; Performance ist zweitrangig gegenüber Klarheit (CPU, keine eigenen CUDA-Kernels).
+RustyAi verbindet **klassisches überwachtes Lernen** (kleine MLPs, Optimierer) mit **LLM-Bausteinen** (Causal Attention, Decoder-Stack, Sampling) in einem einheitlichen Rust-Workspace. Die Implementierung legt Wert auf **Nachvollziehbarkeit**; der Kernpfad bleibt **CPU-Autograd**. Optional stehen **safetensors**-Checkpoints, **GPT-2-Import** und ein **Candle**-Backend (CPU/CUDA, FP8-Hilfen, Referenz-All-Reduce) zur Verfügung.
 
 ### 1.2 Architektur auf einen Blick
 
@@ -21,7 +21,9 @@ rusty_ai_core        Tensor, Broadcasting, matmul, softmax, …
        │                        │
        │                        ├── rusty_ai_ml    Sgd, Adam, Batches
        │                        │
-       │                        └── rusty_ai_llm   MiniGpt, TrainableMiniGpt, generate
+       │                        └── rusty_ai_llm   MiniGpt, TrainableMiniGpt, generate, checkpoints
+       │
+       ├── rusty_ai_backend_candle   (optional) Matmul, FP8, all_reduce_mean
        │
        └── rusty_ai (Meta-Crate, Re-Exports)
 ```
@@ -39,7 +41,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Speicherlayout, Operationen, Fehlertypen.
 
 - **`Tensor`:** Kontiguierter `f32`-Puffer, `Shape` als `Vec<usize>`, row-major (C-Ordnung).
-- **`DType`:** Derzeit im Wesentlichen `F32`.
+- **`DType`:** `F32` für `Tensor`-Speicher. FP8 (E4M3) wird nicht im Kern-`Tensor` gehalten; siehe `rusty_ai_backend_candle::fp8`.
 - **Broadcasting:** Wie üblich rechtsbündig ausgerichtet (`broadcast_shapes`).
 - **Wichtige Operationen:**
   - Elementweise: `add`, `sub`, `mul`, `div` (mit Broadcast)
@@ -104,11 +106,25 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 **Fehlerfälle (Auswahl):** Leere Token-ID-Liste bei `forward`, `forward_prefill` → `TensorError::EmptyTensor`. Inkonsistenter KV-Zustand (nur eines von `k`/`v` gesetzt) in `DecoderBlock::forward_step` → `ShapeError::IncompatibleBroadcast`.
 
+**Checkpoints (RustyAi-Format):** `save_minigpt_checkpoint(dir, &model)` schreibt `config.json` (`model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`/`n_layer`/…) und `model.safetensors` mit Tensor-Namen `tok_embed`, `blocks.{i}.*`, `lm_head_w`, …; `load_minigpt_checkpoint(dir)` rekonstruiert ein [`MiniGpt`]. Optional: Crate-Feature **`hf-hub`** und `load_minigpt_from_hf` für Dateien aus einem Hub-Repo (Cache).
+
+**GPT-2-`safetensors`:** `load_minigpt_from_gpt2_safetensors(path, cfg)` mappt HF-Schlüssel (`transformer.h.{i}.attn.c_attn.weight` usw.) auf die interne Struktur. `c_attn` wird in Q/K/V-Matrizen **zerlegt**; `lm_head.weight` akzeptiert sowohl HF-Shape `[vocab, d_model]` als auch RustyAi `[d_model, vocab]`. **Tokenizer:** Für dieselbe Textpipeline wie OpenAI-GPT-2 ist ein **BPE-Tokenizer** nötig; `ByteTokenizer` bleibt ein einfaches Byte-Modell.
+
 ---
 
-### 2.6 `rusty_ai`
+### 2.6 `rusty_ai_backend_candle`
 
-Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, …).
+**Verantwortung:** Optionale Beschleunigung und Verteilungs-Hilfen über [Candle](https://github.com/huggingface/candle).
+
+- **`matmul_f32`:** Matrixmultiplikation auf gewähltem Candle-`Device` (CPU oder CUDA mit Feature **`cuda`**).
+- **`f32_tensor_to_f8e4m3` / `f8e4m3_tensor_to_f32`:** FP8 E4M3 (sinnvoll mit CUDA; Candle unterstützt den Datentyp auch CPU-seitig eingeschränkt).
+- **`all_reduce_mean_cpu`:** Referenzimplementierung des Mittelwerts über mehrere Gradienten-Kopien (gleiche Länge) — entspricht dem Erwartungswert nach einem All-Reduce-Summe und Division durch `world_size`. Multi-GPU-NCCL: Candle-Feature **`nccl`**, siehe Upstream-Dokumentation.
+
+---
+
+### 2.7 `rusty_ai`
+
+Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, …). Mit Feature **`candle`** zusätzlich `rusty_ai_backend_candle` als Modul `candle`.
 
 ---
 
@@ -155,7 +171,7 @@ Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nic
 
 ## 4. Grenzen und bekannte Einschränkungen
 
-- **Nur CPU** in der Standardimplementierung.
+- **Training:** Der Kern (`TrainableMiniGpt`, Optimierer) läuft auf der **CPU**. GPU-Training über Candle ist nicht 1:1 angebunden; Candle dient als **zusätzlicher** Pfad für Matmul/Quantization/Verteilungs-Experimente.
 - **Autograd** deckt die implementierten Ops ab; erweiterte Ops erfordern eigene `Op`-Varianten und Ableitungen.
 - **Broadcasting im Autograd** ist nicht vollständig für alle Kombinationen in jedem Op abgebildet; `BiasAdd` ist für den üblichen Linear-Bias-Pfad `(batch, n) + (1, n)` gedacht; `Add`/`Mul` reduzieren Gradienten bei Broadcast auf die Eltern-Shapes.
 - **LayerNorm:** `MiniGpt` nutzt affine LayerNorm (`layer_norm_affine`); die Basisfunktion `layer_norm` bleibt für Normierung ohne γ/β nutzbar. Extern gespeicherte Gewichte ohne die neuen γ/β-Tensoren sind nicht abwärtskompatibel.
@@ -194,4 +210,16 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root.
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+
+---
+
+## 8. Feature-Matrix (Meta-Crate `rusty_ai`)
+
+| Feature | Wirkung |
+| ------- | ------- |
+| `candle` | Bindet `rusty_ai_backend_candle` ein; Modul `rusty_ai::candle`. |
+| `candle-cuda` | Wie `candle`, Candle mit CUDA. |
+| `hf-hub` | `rusty_ai_llm` mit Hub-Download; Re-Export `load_minigpt_from_hf`. |
+
+Direkt auf `rusty_ai_llm` kann ebenfalls `hf-hub` aktiviert werden, ohne die Meta-Crate.

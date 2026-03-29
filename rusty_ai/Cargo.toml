@@ -1,8 +1,16 @@
 [package]
 name = "rusty_ai"
-version = "0.1.0"
+version = "1.4.0"
 edition.workspace = true
 license.workspace = true
+
+[features]
+default = []
+# Candle backend (CPU; CUDA if `rusty_ai_backend_candle` is built with `cuda`).
+candle = ["dep:rusty_ai_backend_candle"]
+candle-cuda = ["candle", "rusty_ai_backend_candle/cuda"]
+# Hugging Face Hub: lädt RustyAi-Checkpoints (`config.json` + `model.safetensors`).
+hf-hub = ["rusty_ai_llm/hf-hub"]
 
 [dependencies]
 rusty_ai_core = { path = "../rusty_ai_core" }
@@ -10,6 +18,7 @@ rusty_ai_autograd = { path = "../rusty_ai_autograd" }
 rusty_ai_nn = { path = "../rusty_ai_nn" }
 rusty_ai_ml = { path = "../rusty_ai_ml" }
 rusty_ai_llm = { path = "../rusty_ai_llm" }
+rusty_ai_backend_candle = { path = "../rusty_ai_backend_candle", optional = true }
 
 [[example]]
 name = "train_mlp"
