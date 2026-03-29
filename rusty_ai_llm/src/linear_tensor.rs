@@ -8,10 +8,12 @@ use rusty_ai_core::{add, matmul, Tensor, TensorError};
 pub fn linear_3d(x: &Tensor, w: &Tensor, b: &Tensor) -> Result<Tensor, TensorError> {
     let s = x.shape();
     if s.len() != 3 {
-        return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-            from: s.to_vec(),
-            to: vec![],
-        }));
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![],
+            },
+        ));
     }
     let batch = s[0];
     let seq = s[1];

@@ -8,19 +8,23 @@ use rusty_ai_core::{Tensor, TensorError};
 pub fn split_heads(x: &Tensor, heads: usize, d_head: usize) -> Result<Tensor, TensorError> {
     let s = x.shape();
     if s.len() != 3 {
-        return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-            from: s.to_vec(),
-            to: vec![],
-        }));
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![],
+            },
+        ));
     }
     let batch = s[0];
     let seq = s[1];
     let d = s[2];
     if d != heads * d_head {
-        return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-            from: s.to_vec(),
-            to: vec![batch, seq, heads * d_head],
-        }));
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![batch, seq, heads * d_head],
+            },
+        ));
     }
     let mut out = vec![0.0f32; batch * heads * seq * d_head];
     let data = x.data();
@@ -42,19 +46,23 @@ pub fn split_heads(x: &Tensor, heads: usize, d_head: usize) -> Result<Tensor, Te
 pub fn merge_heads(x: &Tensor, batch: usize, heads: usize) -> Result<Tensor, TensorError> {
     let s = x.shape();
     if s.len() != 3 {
-        return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-            from: s.to_vec(),
-            to: vec![],
-        }));
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![],
+            },
+        ));
     }
     let bh = s[0];
     let seq = s[1];
     let d_head = s[2];
     if bh != batch * heads {
-        return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-            from: s.to_vec(),
-            to: vec![],
-        }));
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![],
+            },
+        ));
     }
     let d = heads * d_head;
     let mut out = vec![0.0f32; batch * seq * d];

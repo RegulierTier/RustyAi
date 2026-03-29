@@ -3,9 +3,31 @@
 use rusty_ai_core::{add, Tensor, TensorError};
 use rusty_ai_nn::{gelu, glorot_uniform, layer_norm, zeros_bias};
 
-use crate::attention::causal_attention;
+use crate::attention::{attention_single_query, causal_attention};
 use crate::heads::{merge_heads, split_heads};
+use crate::kv_cache::{concat_along_seq, KvCache, LayerKv};
 use crate::linear_tensor::linear_3d;
+
+/// Last timestep of logits shaped `(1, seq, vocab)` (also works for `seq == 1`).
+fn logits_last_timestep_1batch(logits: &Tensor) -> Result<Tensor, TensorError> {
+    let s = logits.shape();
+    if s.len() != 3 || s[0] != 1 {
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![1, 0, 0],
+            },
+        ));
+    }
+    let seq = s[1];
+    let v = s[2];
+    if seq == 0 {
+        return Err(TensorError::EmptyTensor);
+    }
+    let data = logits.data();
+    let start = (seq - 1) * v;
+    Tensor::from_vec(data[start..start + v].to_vec(), vec![1, v])
+}
 
 /// Hyperparameters for [`MiniGpt`].
 #[derive(Clone, Debug)]
@@ -56,10 +78,12 @@ impl DecoderBlock {
         let f = cfg.ffn_dim;
         let h = cfg.n_heads;
         if !d.is_multiple_of(h) {
-            return Err(TensorError::Shape(rusty_ai_core::ShapeError::InvalidReshape {
-                from: vec![d],
-                to: vec![h, d / h],
-            }));
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![d],
+                    to: vec![h, d / h],
+                },
+            ));
         }
         let dh = d / h;
         let bz = |cols: usize| zeros_bias(cols);
@@ -83,6 +107,19 @@ impl DecoderBlock {
 
     /// Forward on `(batch, seq, d_model)`; returns same rank tensor.
     pub fn forward(&self, x: &Tensor) -> Result<Tensor, TensorError> {
+        self.forward_prefill_optional(x, None)
+    }
+
+    /// Like [`Self::forward`], but stores keys/values after head split for KV-cache decoding.
+    pub fn forward_prefill(&self, x: &Tensor, kv: &mut LayerKv) -> Result<Tensor, TensorError> {
+        self.forward_prefill_optional(x, Some(kv))
+    }
+
+    fn forward_prefill_optional(
+        &self,
+        x: &Tensor,
+        kv: Option<&mut LayerKv>,
+    ) -> Result<Tensor, TensorError> {
         let s = x.shape();
         let batch = s[0];
         let d = s[2];
@@ -99,7 +136,67 @@ impl DecoderBlock {
         let kh = split_heads(&k, h, dh)?;
         let vh = split_heads(&v, h, dh)?;
 
+        if let Some(kv) = kv {
+            kv.k = Some(kh.clone());
+            kv.v = Some(vh.clone());
+        }
+
         let attn = causal_attention(&qh, &kh, &vh, dh)?;
+        let merged = merge_heads(&attn, batch, h)?;
+        let proj = linear_3d(&merged, &self.w_o, &self.b_o)?;
+
+        let x1 = add(x, &proj)?;
+        let x_ln2 = layer_norm(&x1, 1e-5)?;
+        let h1 = linear_3d(&x_ln2, &self.w_ff1, &self.b_ff1)?;
+        let h2 = gelu(&h1);
+        let h3 = linear_3d(&h2, &self.w_ff2, &self.b_ff2)?;
+        add(&x1, &h3)
+    }
+
+    /// Single new token `(1, 1, d_model)` with existing KV; updates `kv` in place.
+    pub fn forward_step(&self, x: &Tensor, kv: &mut LayerKv) -> Result<Tensor, TensorError> {
+        let s = x.shape();
+        if s != [1, 1, self.n_heads * self.d_head] {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: s.to_vec(),
+                    to: vec![1, 1, self.n_heads * self.d_head],
+                },
+            ));
+        }
+        let batch = 1usize;
+        let h = self.n_heads;
+        let dh = self.d_head;
+
+        let x_ln = layer_norm(x, 1e-5)?;
+        let q = linear_3d(&x_ln, &self.w_q, &self.b_q)?;
+        let k_new = linear_3d(&x_ln, &self.w_k, &self.b_k)?;
+        let v_new = linear_3d(&x_ln, &self.w_v, &self.b_v)?;
+
+        let qh = split_heads(&q, h, dh)?;
+        let kh_new = split_heads(&k_new, h, dh)?;
+        let vh_new = split_heads(&v_new, h, dh)?;
+
+        let (k_full, v_full) = match (&kv.k, &kv.v) {
+            (Some(kp), Some(vp)) => {
+                let kc = concat_along_seq(kp, &kh_new)?;
+                let vc = concat_along_seq(vp, &vh_new)?;
+                (kc, vc)
+            }
+            (None, None) => (kh_new, vh_new),
+            _ => {
+                return Err(TensorError::Shape(
+                    rusty_ai_core::ShapeError::IncompatibleBroadcast {
+                        left: vec![kv.k.is_some() as usize],
+                        right: vec![kv.v.is_some() as usize],
+                    },
+                ));
+            }
+        };
+
+        let attn = attention_single_query(&qh, &k_full, &v_full, dh)?;
+        kv.k = Some(k_full);
+        kv.v = Some(v_full);
         let merged = merge_heads(&attn, batch, h)?;
         let proj = linear_3d(&merged, &self.w_o, &self.b_o)?;
 
@@ -172,8 +269,83 @@ impl MiniGpt {
         Tensor::from_vec(out, vec![1, seq, d])
     }
 
+    /// Token plus positional embedding for one timestep: shape `(1, 1, d_model)`.
+    pub fn embed_token_at(&self, id: usize, pos: usize) -> Result<Tensor, TensorError> {
+        let d = self.cfg.d_model;
+        let v = self.cfg.vocab_size;
+        let max_pos = self.cfg.max_seq.saturating_sub(1);
+        let mut out = vec![0.0f32; d];
+        let w = self.tok_embed.data();
+        let row = id.min(v - 1);
+        for j in 0..d {
+            out[j] = w[row * d + j];
+        }
+        let pt = pos.min(max_pos);
+        let wp = self.pos_embed.data();
+        for j in 0..d {
+            out[j] += wp[pt * d + j];
+        }
+        Tensor::from_vec(out, vec![1, 1, d])
+    }
+
+    /// Prefill prompt tokens and fill `cache`; returns logits for the **last** prompt position `(1, vocab_size)`.
+    pub fn forward_prefill(
+        &self,
+        token_ids: &[usize],
+        cache: &mut KvCache,
+    ) -> Result<Tensor, TensorError> {
+        if token_ids.is_empty() {
+            return Err(TensorError::EmptyTensor);
+        }
+        if cache.layers.len() != self.cfg.n_layers {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![cache.layers.len()],
+                    to: vec![self.cfg.n_layers],
+                },
+            ));
+        }
+        cache.clear();
+        let tok = self.embed_tokens(token_ids)?;
+        let pos = self.embed_positions(token_ids.len())?;
+        let mut h = add(&tok, &pos)?;
+        for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
+            h = block.forward_prefill(&h, kv)?;
+        }
+        let h = layer_norm(&h, 1e-5)?;
+        let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
+        logits_last_timestep_1batch(&logits)
+    }
+
+    /// One autoregressive step: embed `token_id` at absolute `position`, extend KV cache, return logits `(1, vocab_size)`.
+    pub fn forward_decode_step(
+        &self,
+        token_id: usize,
+        position: usize,
+        cache: &mut KvCache,
+    ) -> Result<Tensor, TensorError> {
+        if cache.layers.len() != self.cfg.n_layers {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![cache.layers.len()],
+                    to: vec![self.cfg.n_layers],
+                },
+            ));
+        }
+        let mut h = self.embed_token_at(token_id, position)?;
+        for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
+            h = block.forward_step(&h, kv)?;
+        }
+        let h = layer_norm(&h, 1e-5)?;
+        let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
+        logits_last_timestep_1batch(&logits)
+    }
+
     /// Returns logits `(1, seq_len, vocab_size)` for the token-id sequence (batch size 1).
     pub fn forward(&self, token_ids: &[usize]) -> Result<Tensor, TensorError> {
+        if token_ids.is_empty() {
+            return Err(TensorError::EmptyTensor);
+        }
         let tok = self.embed_tokens(token_ids)?;
         let pos = self.embed_positions(token_ids.len())?;
         let mut h = add(&tok, &pos)?;
@@ -187,19 +359,85 @@ impl MiniGpt {
     /// Last time step only: logits `(1, vocab_size)` (for autoregressive sampling).
     pub fn forward_last(&self, token_ids: &[usize]) -> Result<Tensor, TensorError> {
         let logits = self.forward(token_ids)?;
-        let s = logits.shape();
-        let seq = s[1];
-        let v = s[2];
-        let data = logits.data();
-        let start = (seq - 1) * v;
-        let slice: Vec<f32> = data[start..start + v].to_vec();
-        Tensor::from_vec(slice, vec![1, v])
+        logits_last_timestep_1batch(&logits)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kv_cache::KvCache;
+
+    fn assert_vec_close(a: &[f32], b: &[f32], eps: f32) {
+        assert_eq!(a.len(), b.len(), "length mismatch");
+        for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+            assert!((x - y).abs() < eps, "diff at {i}: {x} vs {y} (>{eps})");
+        }
+    }
+
+    #[test]
+    fn kv_prefill_logits_match_forward_last() {
+        let mut seed = 42u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 64,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 2,
+            ffn_dim: 64,
+            max_seq: 64,
+        };
+        let n_layers = cfg.n_layers;
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let ids = vec![3usize, 7, 11, 2];
+        let mut cache = KvCache::new(n_layers);
+        let pre = m.forward_prefill(&ids, &mut cache).unwrap();
+        let last = m.forward_last(&ids).unwrap();
+        assert_vec_close(pre.data(), last.data(), 1e-4);
+    }
+
+    #[test]
+    fn kv_incremental_matches_forward_last() {
+        let mut seed = 7u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 64,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 2,
+            ffn_dim: 64,
+            max_seq: 64,
+        };
+        let n_layers = cfg.n_layers;
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let prefix = vec![1usize, 5, 9];
+        let t = 19usize;
+        let full: Vec<usize> = prefix.iter().copied().chain(std::iter::once(t)).collect();
+
+        let mut cache = KvCache::new(n_layers);
+        m.forward_prefill(&prefix, &mut cache).unwrap();
+        let step = m.forward_decode_step(t, prefix.len(), &mut cache).unwrap();
+        let last = m.forward_last(&full).unwrap();
+        assert_vec_close(step.data(), last.data(), 1e-4);
+    }
+
+    #[test]
+    fn empty_sequence_returns_empty_tensor_error() {
+        let mut seed = 1u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 32,
+            d_model: 16,
+            n_heads: 2,
+            n_layers: 1,
+            ffn_dim: 32,
+            max_seq: 32,
+        };
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        assert_eq!(m.forward(&[]).unwrap_err(), TensorError::EmptyTensor);
+        let mut cache = KvCache::new(1);
+        assert_eq!(
+            m.forward_prefill(&[], &mut cache).unwrap_err(),
+            TensorError::EmptyTensor
+        );
+    }
 
     #[test]
     fn mini_gpt_forward_shape() {

@@ -14,7 +14,26 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | **Autograd** | `Variable`, dynamischer Graph, `backward`, `BiasAdd` für Zeilen-Bias, `no_grad` für Inferenz |
 | **NN** | `Linear`, GELU, LayerNorm (ohne lernbare γ/β), Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
-| **LLM** | Byte-Tokenizer, Multi-Head-Causal-Attention, `MiniGpt`, `generate` (Temperatur, top-p), optional KV-Struktur als Erweiterungspunkt |
+| **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt`, `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
+
+---
+
+## LLM: Textgenerierung (Kurzüberblick)
+
+`MiniGpt` ist ein kleiner **Decoder-only**-Transformer (zufällige Gewichte, kein mitgelieferter Trainingsloop). Die Funktion **`generate`** arbeitet in zwei Phasen:
+
+1. **Prefill:** Der Prompt wird einmal vollständig durch das Modell geschoben; pro Schicht werden Keys und Values im **`KvCache`** gespeichert.
+2. **Decode:** Jedes neu generierte Token läuft nur mit Sequenzlänge 1 durch die Blöcke; K/V werden an den Cache angehängt — deutlich weniger Arbeit pro Schritt als bei wiederholter Vorwärtsrechnung über den ganzen Kontext.
+
+```rust
+use rusty_ai::{generate, MiniGpt, MiniGptConfig};
+
+let mut seed = 1u32;
+let model = MiniGpt::random(MiniGptConfig::default(), &mut seed).unwrap();
+let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
+```
+
+Manuelle Inferenz (z. B. eigenes Sampling) über **`forward_prefill`** / **`forward_decode_step`** und **`KvCache::new(model.cfg.n_layers)`** ist im **[Handbuch](docs/HANDBUCH.md)** unter „LLM: Vorwärtsrechnung / Sampling“ beschrieben.
 
 ---
 
@@ -58,9 +77,10 @@ Abhängigkeit der Bibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/
 
 ## Dokumentation
 
-Ausführliches **Handbuch** (Architektur, Module, typische Abläufe, Grenzen):
-
-→ **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)**
+| Ressource | Inhalt |
+| --------- | ------ |
+| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, LLM mit KV-Cache), Grenzen, Glossar |
+| **[`docs/README.md`](docs/README.md)** | Kurzüberblick über die Dokumentation im Ordner `docs/` |
 
 Rust-API-Dokumentation lokal erzeugen:
 
@@ -78,4 +98,4 @@ Verteiltes Training, GPU-Kernels, FP8, Laden beliebiger Hugging-Face-Checkpoints
 
 ## Mitwirken
 
-Issues und Pull Requests sind willkommen. `cargo clippy --workspace --all-targets` und `cargo test --workspace` sollten vor einem Merge grün sein.
+Issues und Pull Requests sind willkommen. `cargo clippy --workspace --all-targets` und `cargo test --workspace` sollten vor einem Merge grün sein. Öffentliche API- oder Architekturänderungen idealerweise in [`docs/HANDBUCH.md`](docs/HANDBUCH.md) (und bei Bedarf hier im README) nachziehen.

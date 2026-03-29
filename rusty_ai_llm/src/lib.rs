@@ -11,10 +11,10 @@ mod linear_tensor;
 mod model;
 mod tokenizer;
 
-pub use attention::causal_attention;
+pub use attention::{attention_single_query, causal_attention};
 pub use generate::{generate, sample_token};
 pub use heads::{merge_heads, split_heads};
-pub use kv_cache::LayerKv;
+pub use kv_cache::{KvCache, LayerKv};
 pub use linear_tensor::linear_3d;
 pub use model::{DecoderBlock, MiniGpt, MiniGptConfig};
 pub use tokenizer::ByteTokenizer;

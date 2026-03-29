@@ -82,17 +82,11 @@ mod tests {
 
     #[test]
     fn broadcast_same() {
-        assert_eq!(
-            broadcast_shapes(&[2, 3], &[2, 3]).unwrap(),
-            vec![2, 3]
-        );
+        assert_eq!(broadcast_shapes(&[2, 3], &[2, 3]).unwrap(), vec![2, 3]);
     }
 
     #[test]
     fn broadcast_row() {
-        assert_eq!(
-            broadcast_shapes(&[4, 1], &[1, 5]).unwrap(),
-            vec![4, 5]
-        );
+        assert_eq!(broadcast_shapes(&[4, 1], &[1, 5]).unwrap(), vec![4, 5]);
     }
 }

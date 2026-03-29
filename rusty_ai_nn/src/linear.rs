@@ -20,7 +20,11 @@ pub struct Linear {
 
 impl Linear {
     /// Xavier-uniform weights and zero bias. `seed` advances deterministically.
-    pub fn new(in_features: usize, out_features: usize, seed: &mut u32) -> Result<Self, TensorError> {
+    pub fn new(
+        in_features: usize,
+        out_features: usize,
+        seed: &mut u32,
+    ) -> Result<Self, TensorError> {
         let w = glorot_uniform(in_features, out_features, seed)?;
         let b = zeros_bias(out_features)?;
         Ok(Self {

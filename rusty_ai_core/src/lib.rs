@@ -16,7 +16,7 @@ pub use dtype::DType;
 pub use error::{ShapeError, TensorError};
 
 pub use ops::{
-    add, div, log_softmax, matmul, mul, mse, relu, softmax, sqrt, sub, sum_axis_0, transpose_2d,
+    add, div, log_softmax, matmul, mse, mul, relu, softmax, sqrt, sub, sum_axis_0, transpose_2d,
     transpose_batched_last2,
 };
 pub use shape::broadcast_shapes;

@@ -94,18 +94,20 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Decoder-only-Modell und Textpipeline.
 
 - **`ByteTokenizer`:** 256 Zeichen; `encode` / `decode`.
+- **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
 - **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, vor-layernorm + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head`.
-- **`causal_attention`:** Skaliertes Dot-Product mit Maskierung oberhalb der Diagonale.
-- **`generate` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Vokabular führt zu `TensorError::EmptyTensor`.
-- **`LayerKv`:** Platzhalter-Struktur für zukünftigen KV-Cache.
+- **`causal_attention` / `attention_single_query`:** Skaliertes Dot-Product; ersteres mit kausaler Maske für volle Sequenz, letzteres für einen Query mit Sequenzlänge 1 gegen die vollständige Key-/Value-Historie (nach KV-Konkatenation). Keine zusätzliche Maske nötig, da alle Keys „Vergangenheit“ sind.
+- **`generate` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt **Prefill** (einmalige volle Vorwärtsrechnung über den Prompt) und danach **KV-Cache** pro Layer. Bei `max_tokens == 0` wird nur encodiert/decodiert, ohne Modellaufruf.
+- **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
+- **Weitere API:** `MiniGpt::embed_token_at(id, pos)` — kombinierte Token- und Positionszeile für einen Zeitschritt, Shape `(1, 1, d_model)`; wird intern für Decode-Schritte genutzt.
 
-**Hinweis:** Die Standard-Generierung **ohne** KV-Cache ist einfacher, aber bei langer Sequenz langsamer (volle Vorwärtsrechnung pro Schritt).
+**Fehlerfälle (Auswahl):** Leere Token-ID-Liste bei `forward`, `forward_prefill` → `TensorError::EmptyTensor`. Inkonsistenter KV-Zustand (nur eines von `k`/`v` gesetzt) in `DecoderBlock::forward_step` → `ShapeError::IncompatibleBroadcast`.
 
 ---
 
 ### 2.6 `rusty_ai`
 
-Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, …).
+Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `KvCache`, …).
 
 ---
 
@@ -123,7 +125,22 @@ Siehe `rusty_ai/examples/train_mlp.rs`.
 
 1. `MiniGpt::random(MiniGptConfig::default(), &mut seed)` oder eigene Konfiguration.
 2. Prompt mit `ByteTokenizer::encode` → Token-IDs.
-3. `forward` oder `forward_last` für Logits; `generate` für fortlaufende Ausgabe.
+3. Je nach Ziel:
+   - Volle Logits `(1, seq, vocab)`: `MiniGpt::forward(&token_ids)`.
+   - Nur letztes Zeitschritt (z. B. nächstes Token): `forward_last` — intern ein voller Forward ohne KV-Cache.
+   - Text generieren: `generate(&model, prompt, max_tokens, temperature, top_p, &mut seed)` — Prefill + KV-Cache pro generiertem Token.
+
+**Manuelles Sampling mit KV-Cache** (gleiche Logik wie `generate`, aber eigenes Stepping):
+
+```text
+KvCache::new(cfg.n_layers)
+logits_letzter_prompt = forward_prefill(&prompt_ids, &mut cache)   // liefert (1, vocab)
+Schleife: nächstes Token wählen (z. B. sample_token)
+          ids.push(token)
+          logits = forward_decode_step(token, position, &mut cache)
+```
+
+Dabei ist **`position`** die **absolute** Indexposition des gerade erzeugten Tokens in der laufenden Sequenz (0-basiert), also nach dem ersten neuen Token typisch `prompt_len`, dann `prompt_len + 1`, … — entspricht der Zeile in `embed_positions` / `embed_token_at`.
 
 Training des LLM ist im Framework **nicht** als fertiger Trainingsloop vorgefunden; Gewichte werden typischerweise für Demozwecke zufällig initialisiert.
 
@@ -135,6 +152,7 @@ Training des LLM ist im Framework **nicht** als fertiger Trainingsloop vorgefund
 - **Autograd** deckt die implementierten Ops ab; erweiterte Ops erfordern eigene `Op`-Varianten und Ableitungen.
 - **Broadcasting im Autograd** ist nicht vollständig für alle Kombinationen in jedem Op abgebildet; `BiasAdd` ist für den üblichen Linear-Bias-Pfad gedacht.
 - **LayerNorm** ohne affine Parameter — für Forschungs- oder Produktionsmodelle ggf. erweitern.
+- **KV-Cache:** Kein Paging oder Ringpuffer; bei langen Generierungen wächst der Speicher pro Schritt (Konkatenation). Batch-Größe größer als 1 für LLM-Pfade ist nicht der Fokus der API.
 
 ---
 
@@ -157,6 +175,8 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **Broadcasting** | Automatische Anpassung kleinerer Formen an gemeinsame Ausgabeform bei elementweisen Ops. |
 | **Causal / masked attention** | Attention nur auf vergangene und aktuelle Tokens (untere Dreiecksmatrix in den Scores). |
 | **Decoder-only** | Transformer, der nur „nach links“ sieht (wie GPT), ohne Encoder. |
+| **KV-Cache** | Zwischengespeicherte Key- und Value-Tensoren pro Schicht, um bei autoregressiver Generierung nicht die komplette bisherige Sequenz erneut zu verarbeiten. |
+| **Prefill** | Erster Inferenzschritt über den ganzen Prompt; füllt den KV-Cache und liefert Logits für die letzte Prompt-Position. |
 | **top-p (Nucleus)** | Sampling aus der kleinsten Menge höchster Wahrscheinlichkeiten, deren Summe ≥ p. |
 | **Variable** | Knoten mit Daten und optional Gradient im Autograd-Graphen. |
 
@@ -164,4 +184,4 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich.
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root.

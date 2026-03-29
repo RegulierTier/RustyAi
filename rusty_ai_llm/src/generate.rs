@@ -2,6 +2,7 @@
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 
+use crate::kv_cache::KvCache;
 use crate::model::MiniGpt;
 use crate::tokenizer::ByteTokenizer;
 
@@ -107,10 +108,17 @@ pub fn generate(
     seed: &mut u32,
 ) -> Result<String, TensorError> {
     let mut ids = ByteTokenizer::encode(prompt);
-    for _ in 0..max_tokens {
-        let logits = model.forward_last(&ids)?;
+    if max_tokens == 0 {
+        return Ok(ByteTokenizer::decode(&ids));
+    }
+    let mut cache = KvCache::new(model.cfg.n_layers);
+    let mut logits = model.forward_prefill(&ids, &mut cache)?;
+    for i in 0..max_tokens {
         let next = sample_token(&logits, temperature, top_p, seed)?;
         ids.push(next);
+        if i + 1 < max_tokens {
+            logits = model.forward_decode_step(next, ids.len() - 1, &mut cache)?;
+        }
     }
     Ok(ByteTokenizer::decode(&ids))
 }
