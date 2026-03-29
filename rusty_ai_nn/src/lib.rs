@@ -5,6 +5,6 @@ mod activation;
 mod init;
 mod linear;
 
-pub use activation::{gelu, layer_norm};
-pub use init::{glorot_uniform, uniform, zeros_bias};
+pub use activation::{gelu, layer_norm, layer_norm_affine};
+pub use init::{glorot_uniform, ones_scale, uniform, zeros_bias};
 pub use linear::Linear;

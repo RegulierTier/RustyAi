@@ -1,6 +1,6 @@
 //! Tensor-only activations and normalization (no autograd hooks here).
 
-use rusty_ai_core::{Tensor, TensorError};
+use rusty_ai_core::{add, mul, Tensor, TensorError};
 
 /// Gaussian Error Linear Unit — tanh approximation from Hendrycks & Gimpel.
 ///
@@ -48,4 +48,39 @@ pub fn layer_norm(t: &Tensor, eps: f32) -> Result<Tensor, TensorError> {
     }
 
     Tensor::from_vec(out, shape.to_vec())
+}
+
+/// LayerNorm over the last axis with learnable affine parameters (γ, β), matching
+/// `torch.nn.LayerNorm(..., elementwise_affine=True)` when `gamma`/`beta` are `(1, H)`.
+///
+/// `y = gamma * layer_norm(x) + beta` with broadcasting.
+pub fn layer_norm_affine(
+    x: &Tensor,
+    gamma: &Tensor,
+    beta: &Tensor,
+    eps: f32,
+) -> Result<Tensor, TensorError> {
+    let n = layer_norm(x, eps)?;
+    let scaled = mul(&n, gamma)?;
+    add(&scaled, beta)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::init::{ones_scale, zeros_bias};
+
+    #[test]
+    fn layer_norm_affine_identity_matches_layer_norm() {
+        let x = Tensor::from_vec(
+            vec![1.0f32, 2.0, 3.0, 4.0, 2.0, 1.0],
+            vec![2, 3],
+        )
+        .unwrap();
+        let g = ones_scale(3).unwrap();
+        let b = zeros_bias(3).unwrap();
+        let y = layer_norm_affine(&x, &g, &b, 1e-5).unwrap();
+        let ln = layer_norm(&x, 1e-5).unwrap();
+        assert_eq!(y.data(), ln.data());
+    }
 }

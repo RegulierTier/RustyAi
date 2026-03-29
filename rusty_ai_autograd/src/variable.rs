@@ -159,6 +159,18 @@ impl Variable {
         }))
     }
 
+    /// Last-axis LayerNorm with learnable γ/β (PyTorch `LayerNorm` with `elementwise_affine=True`).
+    pub fn layer_norm_affine(
+        x: &Rc<Variable>,
+        gamma: &Rc<Variable>,
+        beta: &Rc<Variable>,
+        eps: f32,
+    ) -> Result<Rc<Self>, TensorError> {
+        let n = Self::layer_norm(x, eps)?;
+        let scaled = Self::mul(&n, gamma)?;
+        Self::add(&scaled, beta)
+    }
+
     /// Softmax over the last dimension.
     pub fn softmax_last_dim(v: &Rc<Variable>) -> Result<Rc<Self>, TensorError> {
         let data = softmax_last_forward(&v.data())?;
@@ -425,8 +437,10 @@ fn backward_grad(v: &Rc<Variable>, grad: &Tensor) -> Result<(), TensorError> {
     match &v.op {
         Op::Leaf => Ok(()),
         Op::Add(a, b) => {
-            backward_grad(a, grad)?;
-            backward_grad(b, grad)?;
+            let ga = sum_grad_to_shape(grad, a.data().shape())?;
+            let gb = sum_grad_to_shape(grad, b.data().shape())?;
+            backward_grad(a, &ga)?;
+            backward_grad(b, &gb)?;
             Ok(())
         }
         Op::BiasAdd(x, b) => {
@@ -684,6 +698,36 @@ mod tests {
         backward(&loss).unwrap();
         assert!(a.grad().is_some());
         assert!(b.grad().is_some());
+    }
+
+    #[test]
+    fn layer_norm_affine_backward_runs() {
+        let x = Variable::leaf(Tensor::from_vec(vec![1.0f32, 2.0, 3.0], vec![1, 1, 3]).unwrap());
+        let gamma = Variable::leaf(Tensor::from_vec(vec![1.0f32, 1.0, 1.0], vec![1, 3]).unwrap());
+        let beta = Variable::leaf(Tensor::from_vec(vec![0.0f32; 3], vec![1, 3]).unwrap());
+        let y = Variable::layer_norm_affine(&x, &gamma, &beta, 1e-5).unwrap();
+        let target = Tensor::zeros(&[1, 1, 3], rusty_ai_core::DType::F32).unwrap();
+        let loss = Variable::mse(&y, &target).unwrap();
+        backward(&loss).unwrap();
+        assert!(x.grad().is_some());
+        assert!(gamma.grad().is_some());
+        assert!(beta.grad().is_some());
+    }
+
+    #[test]
+    fn add_broadcast_backward() {
+        let a = Variable::leaf(Tensor::from_vec(vec![1.0f32, 2.0, 3.0], vec![1, 1, 3]).unwrap());
+        let b = Variable::leaf(Tensor::from_vec(vec![0.5f32, 1.0, 1.5], vec![1, 3]).unwrap());
+        let s = Variable::add(&a, &b).unwrap();
+        let target = Tensor::from_vec(vec![0.0f32; 3], vec![1, 1, 3]).unwrap();
+        let loss = Variable::mse(&s, &target).unwrap();
+        backward(&loss).unwrap();
+        let ga = a.grad().unwrap();
+        let gb = b.grad().unwrap();
+        assert_eq!(ga.shape(), vec![1, 1, 3]);
+        assert_eq!(gb.shape(), vec![1, 3]);
+        assert!(ga.data().iter().any(|&x| x.abs() > 1e-8));
+        assert!(gb.data().iter().any(|&x| x.abs() > 1e-8));
     }
 
     #[test]

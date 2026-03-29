@@ -1,7 +1,7 @@
 //! Small GPT-style decoder: token + learned positional embeddings, transformer blocks, LM head.
 
 use rusty_ai_core::{add, Tensor, TensorError};
-use rusty_ai_nn::{gelu, glorot_uniform, layer_norm, zeros_bias};
+use rusty_ai_nn::{gelu, glorot_uniform, layer_norm_affine, ones_scale, zeros_bias};
 
 use crate::attention::{attention_single_query, causal_attention};
 use crate::heads::{merge_heads, split_heads};
@@ -67,6 +67,10 @@ pub struct DecoderBlock {
     pub b_ff1: Tensor,
     pub w_ff2: Tensor,
     pub b_ff2: Tensor,
+    pub ln1_gamma: Tensor,
+    pub ln1_beta: Tensor,
+    pub ln2_gamma: Tensor,
+    pub ln2_beta: Tensor,
     pub n_heads: usize,
     pub d_head: usize,
 }
@@ -87,6 +91,7 @@ impl DecoderBlock {
         }
         let dh = d / h;
         let bz = |cols: usize| zeros_bias(cols);
+        let oz = |cols: usize| ones_scale(cols);
         Ok(Self {
             w_q: glorot_uniform(d, d, seed)?,
             w_k: glorot_uniform(d, d, seed)?,
@@ -100,6 +105,10 @@ impl DecoderBlock {
             b_ff1: bz(f)?,
             w_ff2: glorot_uniform(f, d, seed)?,
             b_ff2: bz(d)?,
+            ln1_gamma: oz(d)?,
+            ln1_beta: bz(d)?,
+            ln2_gamma: oz(d)?,
+            ln2_beta: bz(d)?,
             n_heads: h,
             d_head: dh,
         })
@@ -127,7 +136,7 @@ impl DecoderBlock {
         let dh = self.d_head;
         debug_assert_eq!(d, h * dh);
 
-        let x_ln = layer_norm(x, 1e-5)?;
+        let x_ln = layer_norm_affine(x, &self.ln1_gamma, &self.ln1_beta, 1e-5)?;
         let q = linear_3d(&x_ln, &self.w_q, &self.b_q)?;
         let k = linear_3d(&x_ln, &self.w_k, &self.b_k)?;
         let v = linear_3d(&x_ln, &self.w_v, &self.b_v)?;
@@ -146,7 +155,7 @@ impl DecoderBlock {
         let proj = linear_3d(&merged, &self.w_o, &self.b_o)?;
 
         let x1 = add(x, &proj)?;
-        let x_ln2 = layer_norm(&x1, 1e-5)?;
+        let x_ln2 = layer_norm_affine(&x1, &self.ln2_gamma, &self.ln2_beta, 1e-5)?;
         let h1 = linear_3d(&x_ln2, &self.w_ff1, &self.b_ff1)?;
         let h2 = gelu(&h1);
         let h3 = linear_3d(&h2, &self.w_ff2, &self.b_ff2)?;
@@ -168,7 +177,7 @@ impl DecoderBlock {
         let h = self.n_heads;
         let dh = self.d_head;
 
-        let x_ln = layer_norm(x, 1e-5)?;
+        let x_ln = layer_norm_affine(x, &self.ln1_gamma, &self.ln1_beta, 1e-5)?;
         let q = linear_3d(&x_ln, &self.w_q, &self.b_q)?;
         let k_new = linear_3d(&x_ln, &self.w_k, &self.b_k)?;
         let v_new = linear_3d(&x_ln, &self.w_v, &self.b_v)?;
@@ -201,7 +210,7 @@ impl DecoderBlock {
         let proj = linear_3d(&merged, &self.w_o, &self.b_o)?;
 
         let x1 = add(x, &proj)?;
-        let x_ln2 = layer_norm(&x1, 1e-5)?;
+        let x_ln2 = layer_norm_affine(&x1, &self.ln2_gamma, &self.ln2_beta, 1e-5)?;
         let h1 = linear_3d(&x_ln2, &self.w_ff1, &self.b_ff1)?;
         let h2 = gelu(&h1);
         let h3 = linear_3d(&h2, &self.w_ff2, &self.b_ff2)?;
@@ -215,6 +224,8 @@ pub struct MiniGpt {
     pub tok_embed: Tensor,
     pub pos_embed: Tensor,
     pub blocks: Vec<DecoderBlock>,
+    pub ln_f_gamma: Tensor,
+    pub ln_f_beta: Tensor,
     pub lm_head_w: Tensor,
     pub lm_head_b: Tensor,
 }
@@ -234,6 +245,8 @@ impl MiniGpt {
             tok_embed: glorot_uniform(v, d, seed)?,
             pos_embed: glorot_uniform(m, d, seed)?,
             blocks,
+            ln_f_gamma: ones_scale(d)?,
+            ln_f_beta: zeros_bias(d)?,
             lm_head_w: glorot_uniform(d, v, seed)?,
             lm_head_b: zeros_bias(v)?,
             cfg,
@@ -312,7 +325,7 @@ impl MiniGpt {
         for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
             h = block.forward_prefill(&h, kv)?;
         }
-        let h = layer_norm(&h, 1e-5)?;
+        let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
         logits_last_timestep_1batch(&logits)
     }
@@ -336,7 +349,7 @@ impl MiniGpt {
         for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
             h = block.forward_step(&h, kv)?;
         }
-        let h = layer_norm(&h, 1e-5)?;
+        let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
         logits_last_timestep_1batch(&logits)
     }
@@ -352,7 +365,7 @@ impl MiniGpt {
         for block in &self.blocks {
             h = block.forward(&h)?;
         }
-        let h = layer_norm(&h, 1e-5)?;
+        let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         linear_3d(&h, &self.lm_head_w, &self.lm_head_b)
     }
 

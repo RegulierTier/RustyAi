@@ -59,7 +59,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Dynamischer Rechengraph und Gradienten.
 
 - **`Variable`:** Hält `Tensor`-Daten in `RefCell` (Optimierer können Gewichte **in-place** setzen), optional `grad`, sowie die Operation (`Op`).
-- **Operationen mit Gradient (Auswahl):** `Add`, `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM, Ziele als Indizes), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel).
+- **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM, Ziele als Indizes), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
 - **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts.
 - **Kontext:** `grad_enabled()`, `set_grad_enabled`, `no_grad(|| { ... })` — im Inferenzpfad keine Graphen erzeugen.
 
@@ -72,9 +72,10 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Baukasten für kleine Netze.
 
 - **`Linear`:** Gewichte und Bias als `Rc<Variable>`; `forward` → `matmul` + `bias_add`.
-- **Initialisierung:** `glorot_uniform`, `uniform`, `zeros_bias` (siehe `init.rs`).
+- **Initialisierung:** `glorot_uniform`, `uniform`, `zeros_bias`, `ones_scale` (γ-Default für LayerNorm, siehe `init.rs`).
 - **`gelu`:** Tensor-in-Tensor (tanh-Approximation).
-- **`layer_norm`:** Nur Normalisierung über der letzten Dimension (keine lernbaren γ/β).
+- **`layer_norm`:** Nur Normalisierung über der letzten Dimension (Baustein ohne Affine).
+- **`layer_norm_affine`:** `γ · layer_norm(x) + β` mit Broadcast (entspricht `torch.nn.LayerNorm(..., elementwise_affine=True)`); `MiniGpt` nutzt pro Block und vor `lm_head` jeweils eigene γ/β.
 
 ---
 
@@ -95,7 +96,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 - **`ByteTokenizer`:** 256 Zeichen; `encode` / `decode`.
 - **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
-- **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, vor-layernorm + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head`.
+- **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, Pre-LayerNorm (mit γ/β) + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head` nach finaler LayerNorm (ebenfalls γ/β).
 - **`causal_attention` / `attention_single_query`:** Skaliertes Dot-Product; ersteres mit kausaler Maske für volle Sequenz, letzteres für einen Query mit Sequenzlänge 1 gegen die vollständige Key-/Value-Historie (nach KV-Konkatenation). Keine zusätzliche Maske nötig, da alle Keys „Vergangenheit“ sind.
 - **`generate` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt **Prefill** (einmalige volle Vorwärtsrechnung über den Prompt) und danach **KV-Cache** pro Layer. Bei `max_tokens == 0` wird nur encodiert/decodiert, ohne Modellaufruf.
 - **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
@@ -156,8 +157,8 @@ Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nic
 
 - **Nur CPU** in der Standardimplementierung.
 - **Autograd** deckt die implementierten Ops ab; erweiterte Ops erfordern eigene `Op`-Varianten und Ableitungen.
-- **Broadcasting im Autograd** ist nicht vollständig für alle Kombinationen in jedem Op abgebildet; `BiasAdd` ist für den üblichen Linear-Bias-Pfad gedacht.
-- **LayerNorm** ohne affine Parameter — für Forschungs- oder Produktionsmodelle ggf. erweitern.
+- **Broadcasting im Autograd** ist nicht vollständig für alle Kombinationen in jedem Op abgebildet; `BiasAdd` ist für den üblichen Linear-Bias-Pfad `(batch, n) + (1, n)` gedacht; `Add`/`Mul` reduzieren Gradienten bei Broadcast auf die Eltern-Shapes.
+- **LayerNorm:** `MiniGpt` nutzt affine LayerNorm (`layer_norm_affine`); die Basisfunktion `layer_norm` bleibt für Normierung ohne γ/β nutzbar. Extern gespeicherte Gewichte ohne die neuen γ/β-Tensoren sind nicht abwärtskompatibel.
 - **KV-Cache:** Kein Paging oder Ringpuffer; bei langen Generierungen wächst der Speicher pro Schritt (Konkatenation). Batch-Größe größer als 1 für LLM-Pfade ist nicht der Fokus der API.
 
 ---
@@ -182,6 +183,7 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **Causal / masked attention** | Attention nur auf vergangene und aktuelle Tokens (untere Dreiecksmatrix in den Scores). |
 | **Decoder-only** | Transformer, der nur „nach links“ sieht (wie GPT), ohne Encoder. |
 | **KV-Cache** | Zwischengespeicherte Key- und Value-Tensoren pro Schicht, um bei autoregressiver Generierung nicht die komplette bisherige Sequenz erneut zu verarbeiten. |
+| **LayerNorm (affine)** | Normierung über die letzte Dimension plus elementweise **γ** (Skalierung, Initialisierung typisch Einsen) und **β** (Verschiebung, typisch Nullen); in RustyAi: `layer_norm_affine` / `Variable::layer_norm_affine`. Ohne γ/β: nur `layer_norm`. |
 | **Prefill** | Erster Inferenzschritt über den ganzen Prompt; füllt den KV-Cache und liefert Logits für die letzte Prompt-Position. |
 | **top-p (Nucleus)** | Sampling aus der kleinsten Menge höchster Wahrscheinlichkeiten, deren Summe ≥ p. |
 | **TrainableMiniGpt** | Decoder-only-Modell mit `Variable`-Gewichten; Forward wie `MiniGpt`, für Training mit `backward` + Optimierer. |

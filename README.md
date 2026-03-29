@@ -11,8 +11,8 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | Bereich | Inhalt |
 | ------- | ------ |
 | **Tensor & Ops** | `f32`-Tensoren (row-major), Broadcasting, `matmul` (2D + Batch-3D), Aktivierungen, `softmax` / `log_softmax`, `mse`, … |
-| **Autograd** | `Variable`, dynamischer Graph, `backward`, u. a. `MatMul`, `Mul`, GELU, LayerNorm, Softmax, Embedding-Gather, Split/Merge-Heads, Cross-Entropy (Next-Token), `no_grad` für Inferenz |
-| **NN** | `Linear`, GELU, LayerNorm (ohne lernbare γ/β), Xavier-Initialisierung |
+| **Autograd** | `Variable`, dynamischer Graph, `backward`, u. a. `MatMul`, `Mul`, `Add` (Broadcast-Gradienten), GELU, `layer_norm` / `layer_norm_affine`, Softmax, Embedding-Gather, Split/Merge-Heads, Cross-Entropy (Next-Token), `no_grad` für Inferenz |
+| **NN** | `Linear`, GELU, `layer_norm` / `layer_norm_affine` (γ/β wie PyTorch), `ones_scale` / `zeros_bias`, Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
 | **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt` (Tensor), `TrainableMiniGpt` (Autograd), `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
 

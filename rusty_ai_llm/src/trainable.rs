@@ -48,6 +48,10 @@ pub struct DecoderBlockTrainable {
     pub b_ff1: Rc<Variable>,
     pub w_ff2: Rc<Variable>,
     pub b_ff2: Rc<Variable>,
+    pub ln1_gamma: Rc<Variable>,
+    pub ln1_beta: Rc<Variable>,
+    pub ln2_gamma: Rc<Variable>,
+    pub ln2_beta: Rc<Variable>,
     pub n_heads: usize,
     pub d_head: usize,
 }
@@ -67,6 +71,10 @@ impl DecoderBlockTrainable {
             b_ff1: Variable::leaf(b.b_ff1.clone()),
             w_ff2: Variable::leaf(b.w_ff2.clone()),
             b_ff2: Variable::leaf(b.b_ff2.clone()),
+            ln1_gamma: Variable::leaf(b.ln1_gamma.clone()),
+            ln1_beta: Variable::leaf(b.ln1_beta.clone()),
+            ln2_gamma: Variable::leaf(b.ln2_gamma.clone()),
+            ln2_beta: Variable::leaf(b.ln2_beta.clone()),
             n_heads: b.n_heads,
             d_head: b.d_head,
         }
@@ -79,7 +87,7 @@ impl DecoderBlockTrainable {
         let h = self.n_heads;
         let dh = self.d_head;
 
-        let x_ln = Variable::layer_norm(x, 1e-5)?;
+        let x_ln = Variable::layer_norm_affine(x, &self.ln1_gamma, &self.ln1_beta, 1e-5)?;
         let q = linear_3d_var(&x_ln, &self.w_q, &self.b_q)?;
         let k = linear_3d_var(&x_ln, &self.w_k, &self.b_k)?;
         let v = linear_3d_var(&x_ln, &self.w_v, &self.b_v)?;
@@ -93,7 +101,7 @@ impl DecoderBlockTrainable {
         let proj = linear_3d_var(&merged, &self.w_o, &self.b_o)?;
 
         let x1 = Variable::add(x, &proj)?;
-        let x_ln2 = Variable::layer_norm(&x1, 1e-5)?;
+        let x_ln2 = Variable::layer_norm_affine(&x1, &self.ln2_gamma, &self.ln2_beta, 1e-5)?;
         let h1 = linear_3d_var(&x_ln2, &self.w_ff1, &self.b_ff1)?;
         let h2 = Variable::gelu(&h1);
         let h3 = linear_3d_var(&h2, &self.w_ff2, &self.b_ff2)?;
@@ -114,6 +122,10 @@ impl DecoderBlockTrainable {
             Rc::clone(&self.b_ff1),
             Rc::clone(&self.w_ff2),
             Rc::clone(&self.b_ff2),
+            Rc::clone(&self.ln1_gamma),
+            Rc::clone(&self.ln1_beta),
+            Rc::clone(&self.ln2_gamma),
+            Rc::clone(&self.ln2_beta),
         ]
     }
 }
@@ -124,6 +136,8 @@ pub struct TrainableMiniGpt {
     pub tok_embed: Rc<Variable>,
     pub pos_embed: Rc<Variable>,
     pub blocks: Vec<DecoderBlockTrainable>,
+    pub ln_f_gamma: Rc<Variable>,
+    pub ln_f_beta: Rc<Variable>,
     pub lm_head_w: Rc<Variable>,
     pub lm_head_b: Rc<Variable>,
 }
@@ -140,6 +154,8 @@ impl TrainableMiniGpt {
             tok_embed: Variable::leaf(m.tok_embed.clone()),
             pos_embed: Variable::leaf(m.pos_embed.clone()),
             blocks,
+            ln_f_gamma: Variable::leaf(m.ln_f_gamma.clone()),
+            ln_f_beta: Variable::leaf(m.ln_f_beta.clone()),
             lm_head_w: Variable::leaf(m.lm_head_w.clone()),
             lm_head_b: Variable::leaf(m.lm_head_b.clone()),
         })
@@ -155,7 +171,7 @@ impl TrainableMiniGpt {
         for block in &self.blocks {
             h = block.forward(&h)?;
         }
-        let h = Variable::layer_norm(&h, 1e-5)?;
+        let h = Variable::layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         linear_3d_var(&h, &self.lm_head_w, &self.lm_head_b)
     }
 
@@ -164,6 +180,8 @@ impl TrainableMiniGpt {
         for b in &self.blocks {
             p.extend(b.parameters());
         }
+        p.push(Rc::clone(&self.ln_f_gamma));
+        p.push(Rc::clone(&self.ln_f_beta));
         p.push(Rc::clone(&self.lm_head_w));
         p.push(Rc::clone(&self.lm_head_b));
         p

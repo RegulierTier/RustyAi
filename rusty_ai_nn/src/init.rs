@@ -33,3 +33,8 @@ pub fn glorot_uniform(in_f: usize, out_f: usize, seed: &mut u32) -> Result<Tenso
 pub fn zeros_bias(out: usize) -> Result<Tensor, TensorError> {
     Tensor::zeros(&[1, out], DType::F32)
 }
+
+/// Scale vector shaped `(1, out)` filled with ones (LayerNorm γ default, PyTorch-style).
+pub fn ones_scale(out: usize) -> Result<Tensor, TensorError> {
+    Tensor::from_vec(vec![1.0f32; out], vec![1, out])
+}
