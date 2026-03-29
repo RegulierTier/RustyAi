@@ -6,7 +6,32 @@ license.workspace = true
 description = "Phase-0 agent protocol: LlmBackend trait, chat/tool JSON types, JSON Schema for tools."
 readme = "README.md"
 
+[features]
+default = []
+# Real `std::fs` / `std::process` execution (`RealExecutor`); keep off for dependency-light CI.
+real-exec = []
+# OpenAI-compatible Chat Completions over HTTP (`OpenAiCompatBackend`).
+http = ["dep:reqwest"]
+
 [dependencies]
+reqwest = { version = "0.12", optional = true, default-features = true, features = ["blocking", "json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.17"
+
+[[example]]
+name = "openai_smoke"
+required-features = ["http"]
+
+[[example]]
+name = "openai_stream"
+required-features = ["http"]
+
+[[example]]
+name = "agent_retry_demo"
+
+[[example]]
+name = "dual_backend_demo"
+
+[[example]]
+name = "telemetry_demo"

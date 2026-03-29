@@ -14,6 +14,8 @@ pub mod names {
     pub const READ_FILE: &str = "read_file";
     pub const WRITE_FILE: &str = "write_file";
     pub const RUN_CMD: &str = "run_cmd";
+    /// Replace the first occurrence of `old_string` with `new_string` in an existing file (IDE-style edit).
+    pub const SEARCH_REPLACE: &str = "search_replace";
 }
 
 /// What the orchestrator should run after the model selects a tool.
@@ -29,6 +31,12 @@ pub enum ToolInvocation {
         argv: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
+    },
+    /// Replace the first occurrence of `old_string` with `new_string` (UTF-8); fails if `old_string` is absent.
+    SearchReplace {
+        path: String,
+        old_string: String,
+        new_string: String,
     },
 }
 
@@ -50,6 +58,19 @@ impl ToolInvocation {
                 let argv: Vec<String> = parse_argv(v)?;
                 let cwd = parse_optional_string(v, "cwd");
                 Ok(ToolInvocation::RunCmd { argv, cwd })
+            }
+            names::SEARCH_REPLACE => {
+                let path = parse_string_field(v, names::SEARCH_REPLACE, "path")?;
+                let old_string = parse_string_field(v, names::SEARCH_REPLACE, "old_string")?;
+                let new_string = parse_string_field(v, names::SEARCH_REPLACE, "new_string")?;
+                if old_string.is_empty() {
+                    return Err(ToolInvocationParseError::EmptyOldString);
+                }
+                Ok(ToolInvocation::SearchReplace {
+                    path,
+                    old_string,
+                    new_string,
+                })
             }
             other => Err(ToolInvocationParseError::UnknownTool(other.to_string())),
         }
@@ -153,5 +174,40 @@ mod tests {
                 path: "a.rs".into()
             }
         );
+    }
+
+    #[test]
+    fn from_model_search_replace() {
+        let call = ModelToolCall {
+            id: "2".into(),
+            name: names::SEARCH_REPLACE.into(),
+            arguments: serde_json::json!({
+                "path": "x.rs",
+                "old_string": "fn a",
+                "new_string": "fn b"
+            }),
+        };
+        let inv = ToolInvocation::from_model_call(&call).unwrap();
+        assert!(matches!(
+            inv,
+            ToolInvocation::SearchReplace { .. }
+        ));
+    }
+
+    #[test]
+    fn search_replace_rejects_empty_old() {
+        let call = ModelToolCall {
+            id: "3".into(),
+            name: names::SEARCH_REPLACE.into(),
+            arguments: serde_json::json!({
+                "path": "x.rs",
+                "old_string": "",
+                "new_string": "y"
+            }),
+        };
+        assert!(matches!(
+            ToolInvocation::from_model_call(&call),
+            Err(ToolInvocationParseError::EmptyOldString)
+        ));
     }
 }

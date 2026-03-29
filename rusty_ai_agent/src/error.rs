@@ -17,6 +17,8 @@ pub enum ToolInvocationParseError {
     EmptyArgv,
     #[error("argv[{index}]: expected JSON string")]
     ArgvNotString { index: usize },
+    #[error("search_replace: old_string must not be empty")]
+    EmptyOldString,
 }
 
 /// Backend-agnostic completion failure (network, quota, model error, …).

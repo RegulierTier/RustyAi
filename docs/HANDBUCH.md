@@ -26,6 +26,8 @@ rusty_ai_core        Tensor, Broadcasting, matmul, softmax, …
        ├── rusty_ai_backend_candle   (optional) Matmul, FP8, all_reduce_mean
        │
        └── rusty_ai (Meta-Crate, Re-Exports)
+
+rusty_ai_agent       LlmBackend, Tool-Protokoll, Policy (Pfad B / IDE) — Abschnitt 2.8
 ```
 
 Datenfluss beim **Training**: Eingabe → `Tensor` / `Variable` → Schichten → Loss → `backward` → Optimizer-Schritt auf Parameter-Tensoren.
@@ -34,7 +36,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 ### 1.3 IDE-nähe und Produkt um RustyAi herum
 
-Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnahe** Einbindung (Orchestrierung, austauschbare LLM-Backends, Tool-Loops, Compiler-Feedback) siehe **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** (Pfad B: Architektur und Roadmap). **Phase-0-Typen** (`LlmBackend`, Tool-JSON) liegen im Crate **`rusty_ai_agent`** ([README](../rusty_ai_agent/README.md)).
+Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnahe** Einbindung (Orchestrierung, austauschbare LLM-Backends, Tool-Loops, Compiler-Feedback) siehe **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** (Pfad B: Architektur und Roadmap). **Phase-0-Typen** (`LlmBackend`, Tool-JSON) liegen im Crate **`rusty_ai_agent`** ([README](../rusty_ai_agent/README.md)); optionales **HTTP** (OpenAI-kompatibel): Feature **`http`**, [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) mit **`complete_stream`** (SSE, inkl. Tool-Deltas); Hilfen: [`tool_invocations_try_each` / `tool_parse_retry_instruction`](../rusty_ai_agent/src/tool_parse.rs), [`format_replace_preview`](../rusty_ai_agent/src/diff_preview.rs), [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs), [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs), [`LocalTelemetry` / `TimedBackend`](../rusty_ai_agent/src/telemetry.rs).
 
 ---
 
@@ -133,6 +135,38 @@ Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `l
 
 ---
 
+### 2.8 `rusty_ai_agent`
+
+**Verantwortung:** **Agent-/IDE-Protokoll** (Pfad B): austauschbares [`LlmBackend`](../rusty_ai_agent/src/llm_backend.rs), Chat-Typen (`CompletionRequest` / `CompletionResponse`), OpenAI-artige **Tool-Aufrufe** (`ModelToolCall`) und die ausführbare Repräsentation [`ToolInvocation`](../rusty_ai_agent/src/tools.rs) (`read_file`, `write_file`, `run_cmd`, `search_replace`). JSON-Schema: [`schemas/tool_invocation.json`](../rusty_ai_agent/schemas/tool_invocation.json).
+
+Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http`**: [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) (`POST …/chat/completions`, blocking `reqwest`). **Streaming (SSE):** [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/openai_compat.rs) inkl. Aggregation von Text- und Tool-Deltas. Optional **Feature `real-exec`:** [`RealExecutor`](../rusty_ai_agent/src/executor.rs) für echtes Lesen/Schreiben und Subprocess unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs).
+
+**Weitere Bausteine (Auswahl):**
+
+| Modul / API | Zweck |
+| ----------- | ----- |
+| [`tool_parse`](../rusty_ai_agent/src/tool_parse.rs) | `parse_json_arguments_loose`, `tool_invocations_from_model_calls`, `tool_invocations_try_each`, `tool_parse_retry_instruction` |
+| [`orchestrator`](../rusty_ai_agent/src/orchestrator.rs) | `complete_with_tool_parse_retries` (mehrere `complete`-Runden; optional `LocalTelemetry`) |
+| [`fallback_backend`](../rusty_ai_agent/src/fallback_backend.rs) | `FallbackBackend`: primärer `LlmBackend`, bei Fehler Fallback |
+| [`telemetry`](../rusty_ai_agent/src/telemetry.rs) | `LocalTelemetry`, `TimedBackend` (Latenz-/Aufrufzähler), `record_cargo_check` |
+| [`diff_preview`](../rusty_ai_agent/src/diff_preview.rs) | `format_replace_preview` für SEARCH/REPLACE-Review (textuell) |
+
+**Sicherheit und Policy:** Siehe **[`rusty_ai_agent/SECURITY.md`](../rusty_ai_agent/SECURITY.md)**. **Architektur / Roadmap (Pfad B):** **[`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md)**.
+
+**Beispiele** (vom Workspace-Root; Details im [Crate-README](../rusty_ai_agent/README.md)):
+
+| Befehl | Inhalt |
+| ------ | ------ |
+| `cargo run -p rusty_ai_agent --example agent_demo` | Fake-LLM, Dry-Run / Policy |
+| `cargo run -p rusty_ai_agent --example agent_demo --features real-exec -- --real` | Echtes FS / `cargo check` |
+| `cargo run -p rusty_ai_agent --example agent_retry_demo` | Tool-Parse-Retry-Schleife |
+| `cargo run -p rusty_ai_agent --example dual_backend_demo` | Primär + Fallback-Backend |
+| `cargo run -p rusty_ai_agent --example telemetry_demo` | `TimedBackend` + `LocalTelemetry` |
+| `cargo run -p rusty_ai_agent --example openai_smoke --features http` | Eine Chat-Completion (Cloud; Ollama: `-- --ollama`) |
+| `cargo run -p rusty_ai_agent --example openai_stream --features http` | SSE-Streaming |
+
+---
+
 ## 3. Typische Abläufe
 
 ### 3.1 MLP trainieren (Regression)
@@ -185,6 +219,17 @@ Es ist **keine Python-Toolchain** erforderlich; Tests und CI bleiben bei **Cargo
 
 Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nicht benötigt (volle Sequenz pro Schritt).
 
+### 3.4 Agent-Orchestrierung (`rusty_ai_agent`, Pfad B)
+
+1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/openai_compat.rs) (Cloud oder Ollama).
+2. **Tools definieren:** `CompletionRequest::tools` mit JSON-Schema-artigen [`ToolDefinition`](../rusty_ai_agent/src/llm_backend.rs)-Einträgen; Modell liefert `ModelToolCall`s.
+3. **Parsen und ausführen:** `tool_invocations_try_each` oder `tool_invocations_from_model_calls` → [`ToolInvocation`](../rusty_ai_agent/src/tools.rs); vor Ausführung [`AllowlistPolicy::validate`](../rusty_ai_agent/src/policy.rs).
+4. **Fehlerhafte Tool-JSON:** [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs) mit `max_complete_calls` und optional `Some(&telemetry)` für Zähler.
+5. **Robustheit:** [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs) (z. B. API ausgefallen → lokal); [`TimedBackend`](../rusty_ai_agent/src/telemetry.rs) + manuell `record_cargo_check` nach `run_cmd`.
+6. **Echte Ausführung:** nur mit Feature **`real-exec`** und [`RealExecutor::new`](../rusty_ai_agent/src/executor.rs) (Workspace-Root kanonisieren).
+
+Ausführliche Beispielbefehle: Abschnitt **2.8** und [`rusty_ai_agent/README.md`](../rusty_ai_agent/README.md).
+
 ---
 
 ## 4. Grenzen und bekannte Einschränkungen
@@ -223,6 +268,10 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **TrainableMiniGpt** | Decoder-only-Modell mit `Variable`-Gewichten; Forward wie `MiniGpt`, für Training mit `backward` + Optimierer. |
 | **Next-Token-Cross-Entropy** | Mittlerer negativer Log-Likelihood über Positionen `t`, die `token[t+1]` aus `logits[0,t,:]` vorhersagen (`Variable::cross_entropy_next_token`). |
 | **Variable** | Knoten mit Daten und optional Gradient im Autograd-Graphen. |
+| **LlmBackend** | Trait für eine synchrone Chat-/Completion-Anfrage (`complete`); Implementierungen: z. B. HTTP-Client oder Fake für Tests. |
+| **ToolInvocation** | Konkretes, ausführbares Tool (`read_file`, `write_file`, …) nach Parsing aus `ModelToolCall`. |
+| **AllowlistPolicy** | Erlaubte Pfad-Präfixe und Binaries für `run_cmd` vor Ausführung durch einen Executor. |
+| **Pfad B** | IDE-nähe: Orchestrierung, externe LLMs, Tool-Loops, Compiler-Feedback — siehe `ARCHITEKTUR_IDE_ROADMAP_B.md`. |
 
 ---
 

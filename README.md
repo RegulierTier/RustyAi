@@ -1,12 +1,34 @@
 # RustyAi
 
-Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Tensoren, einfache automatische Differentiation, Schichten, Optimierer, ein Mini-Transformer (Decoder-only) und Textgenerierung. Ziel ist **verständlicher Eigencode** auf der CPU, nicht ein Wrapper um große Frameworks.
+**RustyAi** ist ein **Rust-Workspace**, in dem du kleine neuronale Netze und **Decoder-only-Sprachmodelle** (Mini-Transformer) auf der **CPU** verstehen, trainieren und ausführen kannst — mit nachvollziehbarem Eigencode statt Black-Box-Framework. Ergänzend gibt es ein **Agent-Protokoll** (`rusty_ai_agent`) für IDE-nahe Orchestrierung: Tools, Policies und optionale Anbindung an OpenAI-kompatible APIs.
 
 **Lizenz:** MIT oder Apache-2.0 (siehe Workspace-`Cargo.toml`).
 
 ---
 
-## Funktionen
+## Was ist das?
+
+| Du bekommst … | Kurz |
+| ------------- | ---- |
+| **Kern-ML** | `f32`-Tensoren, Broadcasting, `matmul`, Autograd (`Variable`, `backward`), Schichten (`Linear`, GELU, LayerNorm), Optimierer (SGD, Adam) |
+| **Mini-GPT / LLM** | `MiniGpt`, Training mit Next-Token-Loss, Textgenerierung mit **KV-Cache** (Prefill + Decode), optional **GPT-2-Gewichte + BPE** (`tokenizers`) |
+| **Checkpoints** | Eigenes Format (`config.json` + `model.safetensors`), optional Hugging Face Hub |
+| **Optional: Candle** | Separates Crate für CPU/CUDA-Matmul, FP8-Hilfen, Referenz-All-Reduce |
+| **Optional: Agent** | Trait `LlmBackend`, JSON-Tools (`read_file`, `run_cmd`, …), Allowlist, HTTP-Backend, Retry/Telemetrie — für **eigenes** IDE-/CLI-Produkt, nicht als vollständiger Chat-Client |
+
+Es ist **kein** Ersatz für PyTorch/JAX und **kein** fertiger Chatbot — sondern eine **lern- und erweiterbare Codebasis** für Experimente, Demos und die Schnittstelle zu größeren LLMs (Pfad B in der Architektur-Doku).
+
+---
+
+## Warum existiert dieses Projekt?
+
+- **Transparenz:** Der Trainings- und Inferenzpfad soll im Code lesbar bleiben (CPU-Autograd, klarer `generate`-Ablauf mit KV-Cache).
+- **Rust-only-Stack** für viele Workflows: kein Python-Zwang für Training/Demos; optional `tokenizers` (Rust) für GPT-2-BPE.
+- **Klare Grenzen:** Großes LLM-Training auf GPU gehört nicht hierher; stattdessen **Schnittstellen** (`rusty_ai_agent`) für Orchestrierung und externe Modelle — siehe [Architektur Roadmap B](docs/ARCHITEKTUR_IDE_ROADMAP_B.md).
+
+---
+
+## Features
 
 | Bereich | Inhalt |
 | ------- | ------ |
@@ -14,31 +36,87 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | **Autograd** | `Variable`, dynamischer Graph, `backward`, u. a. `MatMul`, `Mul`, `Add` (Broadcast-Gradienten), GELU, `layer_norm` / `layer_norm_affine`, Softmax, Embedding-Gather, Split/Merge-Heads, Cross-Entropy (Next-Token), `no_grad` für Inferenz |
 | **NN** | `Linear`, GELU, `layer_norm` / `layer_norm_affine` (γ/β wie PyTorch), `ones_scale` / `zeros_bias`, Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
-| **LLM** | Byte-Tokenizer; optional **`gpt2-bpe`**: `tokenizer.json` / `Gpt2Tokenizer` + `generate_from_ids` / `generate_gpt2_text` für GPT-2-BPE-Parität (Rust-Crate `tokenizers`). Causal-Attention, `MiniGpt`, `TrainableMiniGpt`, `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
-| **Checkpoints** | `save_minigpt_checkpoint` / `load_minigpt_checkpoint` (`config.json` + `model.safetensors`); optional Feature **`hf-hub`** zum Herunterladen aus dem Hugging Face Hub |
-| **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — HF-GPT-2-Gewichte (fused QKV → getrennte Matrizen). **BPE:** Feature `gpt2-bpe` auf `rusty_ai` / `rusty_ai_llm` + `Gpt2Tokenizer::from_model_dir` (Ordner mit `model.safetensors` und `tokenizer.json`) und `generate_gpt2_text` bzw. `generate_from_ids` |
-| **Candle-Backend** | Crate `rusty_ai_backend_candle`: CPU- oder CUDA-**Matmul**, **FP8 E4M3**-Hilfen, Referenz-**All-Reduce-Mittelwert** für Datenparallelität; optional `rusty_ai` mit `--features candle` bzw. `candle-cuda` |
+| **LLM** | Byte-Tokenizer; optional **`gpt2-bpe`**: `tokenizer.json` / `Gpt2Tokenizer` + `generate_from_ids` / `generate_gpt2_text`. Causal-Attention, `MiniGpt`, `TrainableMiniGpt`, `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
+| **Checkpoints** | `save_minigpt_checkpoint` / `load_minigpt_checkpoint`; optional Feature **`hf-hub`** |
+| **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — HF-GPT-2-Gewichte; BPE mit Feature `gpt2-bpe` |
+| **Candle-Backend** | `rusty_ai_backend_candle`: CPU/CUDA-**Matmul**, **FP8 E4M3**, Referenz-**All-Reduce**; optional `rusty_ai` mit `--features candle` / `candle-cuda` |
+| **Agent (`rusty_ai_agent`)** | `LlmBackend`, Tool-JSON, Policy, optional **`http`** (OpenAI-kompatibel) und **`real-exec`** — Details: [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md) |
 
 ---
 
-## LLM: Textgenerierung (Kurzüberblick)
+## Beispiel
 
-`MiniGpt` ist ein kleiner **Decoder-only**-Transformer mit zufälliger Initialisierung. Zum **Trainieren** (Next-Token-Cross-Entropy, gleicher Forward wie `MiniGpt::forward`) dient **`TrainableMiniGpt`** plus `Variable::cross_entropy_next_token`; Beispiel: `cargo run -p rusty_ai --example train_mini_gpt`. Die Funktion **`generate`** arbeitet für Inferenz in zwei Phasen:
+Es gibt **kein eingebettetes Screenshot** (Bibliothek & CLI, kein separates UI). Stattdessen: **echtes Terminal-Output** aus den mitgelieferten Beispielen — so siehst du in wenigen Sekunden, ob der Build bei dir läuft.
 
-1. **Prefill:** Der Prompt wird einmal vollständig durch das Modell geschoben; pro Schicht werden Keys und Values im **`KvCache`** gespeichert.
-2. **Decode:** Jedes neu generierte Token läuft nur mit Sequenzlänge 1 durch die Blöcke; K/V werden an den Cache angehängt — deutlich weniger Arbeit pro Schritt als bei wiederholter Vorwärtsrechnung über den ganzen Kontext.
+**Kein GUI** — alles über die Konsole. Unten: ein **kurzes** Laufbeispiel (Regression) und ein **Agent-Demo**-Output.
 
-```rust
-use rusty_ai::{generate, MiniGpt, MiniGptConfig};
+### Mini-MLP trainieren (Regression)
 
-let mut seed = 1u32;
-let model = MiniGpt::random(MiniGptConfig::default(), &mut seed).unwrap();
-let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
+```bash
+cargo run -p rusty_ai --example train_mlp
 ```
 
-**GPT-2-Gewichte + BPE** (`cargo build -p rusty_ai --features gpt2-bpe`): `MiniGptConfig` zur Checkpoint-Größe (z. B. `vocab_size: 50257`), `load_minigpt_from_gpt2_safetensors("…/model.safetensors", cfg)`, `Gpt2Tokenizer::from_model_dir("…/")` (enthält `tokenizer.json`), dann `generate_gpt2_text(&model, &tok, prompt, max_new, temp, top_p, &mut seed)`.
+Beispiel-Output (Auszug — Loss sinkt über Epochen):
 
-Manuelle Inferenz (z. B. eigenes Sampling) über **`forward_prefill`** / **`forward_decode_step`** und **`KvCache::new(model.cfg.n_layers)`** ist im **[Handbuch](docs/HANDBUCH.md)** unter „LLM: Vorwärtsrechnung / Sampling“ beschrieben.
+```text
+epoch   0  loss = 0.292513
+epoch  20  loss = 0.013322
+epoch  40  loss = 0.002707
+epoch  60  loss = 0.000606
+epoch  79  loss = 0.000300
+```
+
+### Agent: Fallback-Backend (ohne Netzwerk)
+
+```bash
+cargo run -p rusty_ai_agent --example dual_backend_demo
+```
+
+Beispiel-Output:
+
+```text
+from fallback
+```
+
+(Das Beispiel simuliert einen fehlschlagenden primären LLM-Call und nutzt dann den Fallback — gut sichtbar in einer Zeile.)
+
+Weitere Demos: `train_mini_gpt`, `agent_demo`, `agent_retry_demo`, `telemetry_demo`; mit Features `http` / `real-exec` siehe [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md).
+
+---
+
+## So funktioniert’s (kurz)
+
+```text
+  Eingabedaten
+       │
+       ▼
+  ┌─────────┐     ┌──────────────┐     ┌─────────┐
+  │ Tensor  │ ──► │  Variable /  │ ──► │  Loss   │
+  │         │     │  Schichten   │     │         │
+  └─────────┘     └──────────────┘     └────┬────┘
+                                            │
+                                            ▼ backward
+                                     Optimizer-Update
+```
+
+**LLM-Inferenz** (`generate`): zuerst **Prefill** über den ganzen Prompt (KV-Cache füllen), dann pro neuem Token nur noch **Decode** mit Sequenzlänge 1 — weniger Arbeit als der volle Forward jedes Mal.
+
+**Agent (optional):** Modell liefert Text und/oder **Tool-Calls** → euer Code parst JSON → **Policy** (Pfade, erlaubte Binaries) → optional **Executor** (`real-exec`).
+
+Ausführlicher: **[Handbuch](docs/HANDBUCH.md)** (Architektur, KV-Cache, Agent-Abschnitte 2.8 / 3.4).
+
+---
+
+## Roadmap
+
+Die **fachliche** Roadmap (IDE/Orchestrierung, Phasen 0–4) steht in **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)**. Kurzfassung:
+
+| Phase | Richtung |
+| ----- | -------- |
+| **0–1** | `LlmBackend`, Tool-Protokoll, HTTP/SSE, Retry, Telemetrie, Fallback — im Workspace weitgehend umgesetzt (`rusty_ai_agent`) |
+| **2+** | Workspace-Index / RAG, LSP, Prompt-Templates, CI-Modi — **außerhalb** des reinen Kern-Trainings |
+
+Im **ML-/LLM-Kern** bleiben bewusst **TODOs** für Dinge wie vollständiges GPU-Training, Streaming-Generate im `rusty_ai_llm`-Stil — siehe Kommentare in den Crates.
 
 ---
 
@@ -50,24 +128,30 @@ Manuelle Inferenz (z. B. eigenes Sampling) über **`forward_prefill`** / **`fo
 
 ## Schnellstart
 
-Repository klonen, im Workspace-Verzeichnis:
-
 ```bash
+git clone <REPO-URL>
+cd RustyAi
 cargo build --workspace
 cargo test --workspace
 ```
 
-**MLP-Beispiel** (synthetische Regression):
-
 ```bash
 cargo run -p rusty_ai --example train_mlp
-```
-
-**Mini-GPT-Beispiel** (kurze Byte-Sequenz, Adam, Next-Token-Loss):
-
-```bash
 cargo run -p rusty_ai --example train_mini_gpt
+cargo run -p rusty_ai_agent --example agent_demo
 ```
+
+LLM-Kurzüberblick (Prefill/Decode, Code-Snippet) und GPT-2-Hinweise: siehe Abschnitte **„LLM: Textgenerierung“** und **Dokumentation** unten bzw. [Handbuch](docs/HANDBUCH.md).
+
+```rust
+use rusty_ai::{generate, MiniGpt, MiniGptConfig};
+
+let mut seed = 1u32;
+let model = MiniGpt::random(MiniGptConfig::default(), &mut seed).unwrap();
+let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
+```
+
+**Agent / HTTP / `real-exec`:** [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md) und [Handbuch §2.8 / §3.4](docs/HANDBUCH.md).
 
 ---
 
@@ -75,16 +159,26 @@ cargo run -p rusty_ai --example train_mini_gpt
 
 | Crate | Rolle |
 | ----- | ----- |
-| `rusty_ai` | Sammel-Crate: Re-Exports der übrigen Pakete |
-| `rusty_ai_agent` | Phase-0-Agent-Protokoll: `LlmBackend`, Chat-/Tool-JSON (IDE-Roadmap) |
+| `rusty_ai` | Sammel-Crate: Re-Exports |
+| `rusty_ai_agent` | Agent-Protokoll, optional `http` / `real-exec` |
 | `rusty_ai_core` | Tensoren, Formen, numerische Operationen |
 | `rusty_ai_autograd` | `Variable`, Rückwärtsrechnung |
 | `rusty_ai_nn` | Schichten & Aktivierungen |
 | `rusty_ai_ml` | Optimierer & Daten-Helfer |
-| `rusty_ai_llm` | Transformer, Tokenizer, Generierung, safetensors-Checkpoints, GPT-2-Mapping — siehe [`rusty_ai_llm/README.md`](rusty_ai_llm/README.md) |
-| `rusty_ai_backend_candle` | Optional: Candle (CPU/CUDA), FP8, verteilte Referenz-Ops |
+| `rusty_ai_llm` | Transformer, Tokenizer, Generierung, Checkpoints — [`rusty_ai_llm/README.md`](rusty_ai_llm/README.md) |
+| `rusty_ai_backend_candle` | Optional: Candle (CPU/CUDA), FP8 |
 
-Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/matrixmultiply) für schnelles CPU-Matmul.
+Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/matrixmultiply) für CPU-Matmul.
+
+---
+
+## LLM: Textgenerierung (Kurzüberblick)
+
+`MiniGpt` ist ein kleiner **Decoder-only**-Transformer. Zum **Trainieren** dient **`TrainableMiniGpt`** mit `Variable::cross_entropy_next_token` (`cargo run -p rusty_ai --example train_mini_gpt`).
+
+**GPT-2-Gewichte + BPE** (`cargo build -p rusty_ai --features gpt2-bpe`): `MiniGptConfig` zur Checkpoint-Größe, `load_minigpt_from_gpt2_safetensors`, `Gpt2Tokenizer::from_model_dir`, dann `generate_gpt2_text` / `generate_from_ids`.
+
+Manuelle Inferenz mit **`forward_prefill`** / **`forward_decode_step`** und **`KvCache`**: [Handbuch — LLM](docs/HANDBUCH.md).
 
 ---
 
@@ -92,14 +186,13 @@ Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/cra
 
 | Ressource | Inhalt |
 | --------- | ------ |
-| **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B (IDE-nah): Zielarchitektur, Tool-Loops, Roadmap in Phasen |
-| **[`rusty_ai_agent/README.md`](rusty_ai_agent/README.md)** | `LlmBackend`-Trait, Tool-Protokoll, JSON Schema (`schemas/`) |
-| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, Mini-GPT-Training, LLM-Inferenz mit KV-Cache), Checkpoints/GPT-2/Candle, Grenzen, Glossar |
-| **[`docs/README.md`](docs/README.md)** | Kurzüberblick und Verweise auf weiterführende Dateien |
-| **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht zur Scope-Erweiterung (Tests, Korrekturen) |
-| **[`rusty_ai_backend_candle/README.md`](rusty_ai_backend_candle/README.md)** | Optionales Candle-Backend (Features, API-Kurzüberblick) |
-
-Rust-API-Dokumentation lokal erzeugen:
+| **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B: Architektur, Roadmap |
+| **[`rusty_ai_agent/README.md`](rusty_ai_agent/README.md)** | Agent: Features, Beispiele, API |
+| **[`rusty_ai_agent/SECURITY.md`](rusty_ai_agent/SECURITY.md)** | Sicherheit (Allowlist, `run_cmd`) |
+| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Zentrale Referenz: Crates, Abläufe, Glossar |
+| **[`docs/README.md`](docs/README.md)** | Index der `docs/`-Dateien |
+| **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht Scope-Erweiterung |
+| **[`rusty_ai_backend_candle/README.md`](rusty_ai_backend_candle/README.md)** | Candle-Backend |
 
 ```bash
 cargo doc --workspace --no-deps --open
@@ -109,12 +202,12 @@ cargo doc --workspace --no-deps --open
 
 ## Erweiterter Scope (experimentell)
 
-- **Training** bleibt in den Kern-Crates **CPU-Autograd** (`TrainableMiniGpt`). GPU/FP8 und größere Matmuls laufen über das **optionale** Candle-Crate; produktives Multi-GPU-Training nutzt typischerweise NCCL (Candle-Feature `nccl`) oder externe Orchestrierung.
-- **Checkpoints:** Eigenes Format `config.json` + `model.safetensors` (RustyAi-`model_type`: `rusty_ai_minigpt`).
-- **Hugging Face:** GPT-2-`safetensors` können mit `load_minigpt_from_gpt2_safetensors` geladen werden, wenn die Hyperparameter zur gewählten `MiniGptConfig` passen (typisch `vocab_size` 50257). Mit **`gpt2-bpe`** lädt `Gpt2Tokenizer` dieselbe `tokenizer.json` wie die übliche HF-Pipeline (Implementierung: Rust-Crate **`tokenizers`**, ohne Python). **`load_minigpt_from_hf`** (Feature `hf-hub`) lädt **RustyAi**-Checkpoints aus einem Repo, nicht beliebige GPT-2-Archivformate.
+- **Training:** Kern ist **CPU-Autograd**; Candle optional für Matmul/Experimente.
+- **Checkpoints:** Eigenes Format; `load_minigpt_from_hf` (Feature `hf-hub`) für **RustyAi**-Checkpoints im Hub.
+- **Hugging Face GPT-2:** `load_minigpt_from_gpt2_safetensors`; BPE mit **`gpt2-bpe`**.
 
 ---
 
 ## Mitwirken
 
-Issues und Pull Requests sind willkommen. `cargo clippy --workspace --all-targets` und `cargo test --workspace` sollten vor einem Merge grün sein. Öffentliche API- oder Architekturänderungen idealerweise in [`docs/HANDBUCH.md`](docs/HANDBUCH.md) (und bei Bedarf hier im README) nachziehen.
+Issues und Pull Requests sind willkommen. Vor einem Merge: `cargo clippy --workspace --all-targets` und `cargo test --workspace`. Änderungen an öffentlicher API oder Architektur idealerweise im [Handbuch](docs/HANDBUCH.md) spiegeln.

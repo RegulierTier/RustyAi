@@ -4,7 +4,7 @@
 *.log
 
 # IDE / OS
-.cursor/
+docs/plans
 .idea/
 .vscode/
 *.swp

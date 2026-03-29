@@ -107,7 +107,7 @@ impl Tensor {
         let mut out_data = vec![0.0f32; n];
 
         let mut coords = vec![0usize; rank];
-        for flat in 0..n {
+        for (flat, out_slot) in out_data.iter_mut().enumerate().take(n) {
             // Decode flat index to output coordinates (last dim fastest).
             let mut rem = flat;
             for i in (0..rank).rev() {
@@ -121,7 +121,7 @@ impl Tensor {
             let cb = broadcast_pick_coords(&coords, other.shape());
             let ib = ravel_index(&cb, &crate::shape::pad_left_ones(other.shape(), rank));
 
-            out_data[flat] = op(self.data[ia], other.data[ib]);
+            *out_slot = op(self.data[ia], other.data[ib]);
         }
 
         Ok(Self {

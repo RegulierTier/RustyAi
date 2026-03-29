@@ -103,8 +103,8 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 - [x] **Abstraktion `LlmBackend`** — Trait, `CompletionRequest` / `CompletionResponse`, `LlmError` im Workspace-Crate **`rusty_ai_agent`** (sync; async später im Anwendungscode). Quelle: [`rusty_ai_agent/src/llm_backend.rs`](../rusty_ai_agent/src/llm_backend.rs).
 - [x] **Minimales Tool-Protokoll** — `ToolInvocation` (`read_file`, `write_file`, `run_cmd`), Parsing aus `ModelToolCall`, JSON Schema: [`rusty_ai_agent/schemas/tool_invocation.json`](../rusty_ai_agent/schemas/tool_invocation.json). Quelle: [`rusty_ai_agent/src/tools.rs`](../rusty_ai_agent/src/tools.rs).
-- [ ] **Ein** End-to-End-Flow: Anfrage → Modell → Patch oder Dateiänderung → `cargo check` → Ergebnis in der UI/CLI (Orchestrierungs-Binary oder separates Produkt-Repo; nicht Teil von `rusty_ai_agent`).
-- [ ] Dokumentation der **Sicherheitsregeln** (Pfad-Allowlist, kein `rm -rf` ohne explizite Policy) — Kurzüberblick im [`rusty_ai_agent/README.md`](../rusty_ai_agent/README.md); verbindliche Policy im Produkt.
+- [x] **Referenz-Flow:** `cargo run -p rusty_ai_agent --example agent_demo` (Dry-Run) bzw. `--features real-exec -- --real` (echtes Lesen einer Datei + `cargo check` unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs)).
+- [x] Dokumentation der **Sicherheitsregeln** — [`rusty_ai_agent/README.md`](../rusty_ai_agent/README.md) (Kurz), [`rusty_ai_agent/SECURITY.md`](../rusty_ai_agent/SECURITY.md) (Detail); verbindliche Policy bleibt im Produkt.
 
 **Erfolgskriterium:** Reproduzierbarer Demo-Workspace, in dem eine kleine Änderung mit Compiler-Feedback funktioniert.
 
@@ -112,13 +112,18 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 ### Phase 1 — Produktreife (MVP IDE-nah)
 
-- [ ] **Streaming** der Modellantwort (wo das Backend es hergibt).
-- [ ] **Stop-Sequenzen**, **max_tokens**, robustes Parsing von Tool-JSON (Retry / Reparatur-Prompt bei Parsefehler).
-- [ ] **Diff-Ansicht** oder SEARCH/REPLACE-Blöcke statt blindem Volltext-Overwrite.
-- [ ] **Zwei Backends** parallel: z. B. OpenAI-kompatible API + lokaler Server.
-- [ ] Telemetrie optional (lokal only): Latenz, Anzahl Turns, Erfolg von `cargo check`.
+- [x] **Streaming** der Modellantwort — [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/openai_compat.rs) (SSE, Text-Deltas; **Tool-Calls** werden aus `delta.tool_calls[index]` aggregiert). [`complete_stream_text`](../rusty_ai_agent/src/openai_compat.rs) ist ein Alias. Beispiel: `cargo run -p rusty_ai_agent --example openai_stream --features http`.
+- [x] **Stop-Sequenzen**, **max_tokens**, robustes Parsing von Tool-JSON — *Erledigt:* `CompletionRequest::stop_sequences`, [`tool_invocations_from_model_calls`](../rusty_ai_agent/src/tool_parse.rs), [**HTTP Chat Completions**](../rusty_ai_agent/src/openai_compat.rs) (`--features http`), [`parse_json_arguments_loose`](../rusty_ai_agent/src/tool_parse.rs) (u. a. Markdown-Fences). **Retry-Hilfe (Orchestrierung):** [`tool_invocations_try_each`](../rusty_ai_agent/src/tool_parse.rs), [`tool_parse_retry_instruction`](../rusty_ai_agent/src/tool_parse.rs) (Text für Folge-Prompt).
+- [x] **Diff-/Vorschau-Hilfe** (textuell, kein Editor-UI) — [`format_replace_preview`](../rusty_ai_agent/src/diff_preview.rs) für SEARCH/REPLACE-Review; echte **Diff-Ansicht** in der IDE bleibt Produkt/UI.
+- [x] **Turn-Schleife / Tool-Parse-Retry** — [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs) (mehrfaches `complete` mit angehängter Retry-User-Nachricht). Beispiel: `cargo run -p rusty_ai_agent --example agent_retry_demo`.
+- [x] **Zwei Backends** (primär + Fallback) — [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs): bei Fehler des ersten [`LlmBackend`] den zweiten nutzen (z. B. Cloud-API + lokaler Ollama). Beispiel: `cargo run -p rusty_ai_agent --example dual_backend_demo`.
+- [x] **Telemetrie (lokal)** — [`LocalTelemetry`](../rusty_ai_agent/src/telemetry.rs), [`TimedBackend`](../rusty_ai_agent/src/telemetry.rs) (Latenz/`complete`-Zähler), `record_cargo_check`, optional `tool_parse_retry_turns` via [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs) (`telemetry: Some(&tel)`). Beispiel: `cargo run -p rusty_ai_agent --example telemetry_demo`. Kein Versand ins Netz.
 
 **Erfolgskriterium:** Migration einer kleinen, gut abgegrenzten Refactoring-Aufgabe (eine Crate, wenige Dateien) mit messbar weniger manuellen Korrekturen als „reiner Chat ohne Tools“.
+
+**Phase 1 (RustyAi `rusty_ai_agent`):** abgeschlossen. ~~HTTP-Backend~~, ~~**SEARCH/REPLACE**~~, ~~**SSE / Tool-Stream**~~, ~~**Retry-Text**~~, ~~**Replace-Vorschau**~~, ~~**Turn-Schleife**~~, ~~**Fallback-Backends**~~, ~~**lokale Telemetrie**~~.
+
+**Nächster Schritt:** **Phase 2** (siehe unten: Workspace-Index, LSP, …); produktseitig weiterhin **Diff-View** in der IDE (kein Crate).
 
 ### Phase 2 — Kontext und Qualität
 

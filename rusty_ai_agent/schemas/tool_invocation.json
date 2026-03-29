@@ -37,6 +37,17 @@
         },
         "cwd": { "type": "string", "description": "Optional working directory" }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "path", "old_string", "new_string"],
+      "properties": {
+        "tool": { "const": "search_replace" },
+        "path": { "type": "string" },
+        "old_string": { "type": "string", "minLength": 1 },
+        "new_string": { "type": "string" }
+      }
     }
   ]
 }

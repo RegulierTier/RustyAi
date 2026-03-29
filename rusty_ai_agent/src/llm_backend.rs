@@ -44,6 +44,9 @@ pub struct CompletionRequest {
     pub max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Sequences that should truncate generation (OpenAI-style `stop`; multiple strings).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop_sequences: Vec<String>,
 }
 
 /// One tool call emitted by the model (before orchestrator maps to [`crate::ToolInvocation`]).
@@ -108,6 +111,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            stop_sequences: vec![],
         };
         let res = b.complete(req).unwrap();
         assert_eq!(

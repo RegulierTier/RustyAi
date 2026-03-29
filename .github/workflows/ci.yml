@@ -19,5 +19,9 @@ jobs:
           components: clippy
       - name: cargo test
         run: cargo test --workspace
+      - name: cargo test rusty_ai_agent (real-exec)
+        run: cargo test -p rusty_ai_agent --features real-exec
+      - name: cargo test rusty_ai_agent (http)
+        run: cargo test -p rusty_ai_agent --features http
       - name: clippy
         run: cargo clippy --workspace --all-targets

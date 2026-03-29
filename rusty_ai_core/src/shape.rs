@@ -14,7 +14,7 @@ use crate::error::ShapeError;
 pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Result<Vec<usize>, ShapeError> {
     let rank = a.len().max(b.len());
     let mut out = vec![0usize; rank];
-    for i in 0..rank {
+    for (i, out_slot) in out.iter_mut().enumerate() {
         // Index into the padded (virtual) shapes: left-pad shorter shape with 1s.
         let ia = a.len().saturating_sub(rank - i);
         let ib = b.len().saturating_sub(rank - i);
@@ -32,7 +32,7 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Result<Vec<usize>, ShapeErr
                 })
             }
         };
-        out[i] = o;
+        *out_slot = o;
     }
     Ok(out)
 }
@@ -54,13 +54,13 @@ pub fn pad_left_ones(shape: &[usize], rank: usize) -> Vec<usize> {
 pub fn ravel_index(coords: &[usize], shape: &[usize]) -> usize {
     debug_assert_eq!(coords.len(), shape.len());
     let mut idx = 0usize;
-    for i in 0..shape.len() {
+    for (i, &coord_i) in coords.iter().enumerate() {
         // Stride for dimension i = product of all following dimension sizes.
         let mut stride = 1usize;
-        for j in i + 1..shape.len() {
-            stride *= shape[j];
+        for &d in shape.iter().skip(i + 1) {
+            stride *= d;
         }
-        idx += coords[i] * stride;
+        idx += coord_i * stride;
     }
     idx
 }

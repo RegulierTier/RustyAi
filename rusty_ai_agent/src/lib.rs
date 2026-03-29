@@ -1,15 +1,46 @@
 //! Agent protocol for **Phase 0** (IDE roadmap): [`LlmBackend`], chat/completion types, and
 //! [`ToolInvocation`] JSON. See the crate `README.md` and `docs/ARCHITEKTUR_IDE_ROADMAP_B.md` in the workspace.
 //!
-//! Execution of tools (filesystem, subprocess) is **not** implemented here — only types and parsing.
+//! Optional feature **`real-exec`**: [`RealExecutor`] runs [`ToolInvocation`] via `std::fs` / `std::process`
+//! after [`AllowlistPolicy`] checks. Optional **`http`**: OpenAI-kompatibles HTTP (`OpenAiCompatBackend`, u. a. SSE `complete_stream`; siehe README).
+//! Helpers: [`tool_invocations_try_each`], [`tool_parse_retry_instruction`], [`format_replace_preview`], [`complete_with_tool_parse_retries`],
+//! [`FallbackBackend`] (primär + Fallback), [`LocalTelemetry`] / [`TimedBackend`] (lokale Metriken).
 
+mod diff_preview;
 mod error;
+mod fallback_backend;
 mod llm_backend;
+mod policy;
+mod telemetry;
+mod tool_parse;
 mod tools;
+
+mod orchestrator;
+
+#[cfg(feature = "real-exec")]
+mod executor;
+
+#[cfg(feature = "http")]
+mod openai_compat;
 
 pub use error::{LlmError, ToolInvocationParseError};
 pub use llm_backend::{
     ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend, ModelToolCall,
     ToolDefinition,
 };
+pub use fallback_backend::FallbackBackend;
+pub use orchestrator::complete_with_tool_parse_retries;
+pub use diff_preview::{format_replace_preview, truncate_middle};
+pub use telemetry::{LocalTelemetry, TelemetrySnapshot, TimedBackend};
+pub use policy::AllowlistPolicy;
+pub use tool_parse::{
+    parse_json_arguments_loose, tool_invocations_from_model_calls, tool_invocations_try_each,
+    tool_parse_retry_instruction, ToolInvocationParseItem,
+};
 pub use tools::{names, ToolExecutionResult, ToolInvocation};
+
+#[cfg(feature = "real-exec")]
+pub use executor::{ExecutorError, RealExecutor};
+
+#[cfg(feature = "http")]
+pub use openai_compat::{OpenAiChatConfig, OpenAiCompatBackend};
