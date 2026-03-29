@@ -3,6 +3,8 @@
 //! Broadcasting follows NumPy semantics: dimensions are aligned on the right, missing
 //! dimensions are treated as length 1, and each output dimension must equal the input
 //! dimension or one side must be 1 (which is then repeated).
+//!
+//! FIXME: broadcast cost is generic Python-style loops — not optimized for huge tensors.
 
 use crate::error::ShapeError;
 

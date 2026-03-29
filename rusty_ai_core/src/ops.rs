@@ -3,6 +3,8 @@
 //! Binary ops delegate to [`Tensor::broadcast_binary`]. Matrix multiply uses the
 //! `matrixmultiply` crate (`sgemm`) for CPU performance. Softmax applies along a single axis
 //! with subtract-max stabilization to reduce overflow in exponentials.
+//!
+//! FIXME: no SIMD-specific fast paths beyond `matrixmultiply` / scalar loops.
 
 use crate::error::{ShapeError, TensorError};
 use crate::tensor::Tensor;

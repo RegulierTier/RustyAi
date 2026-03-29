@@ -7,6 +7,8 @@ use crate::shape::{broadcast_pick_coords, broadcast_shapes, ravel_index};
 /// The linear layout is: index `[i0, i1, ..., i_{n-1}]` maps to
 /// `i0 * s1 * s2 * ... + i1 * s2 * ... + ... + i_{n-1}` where `sk` are dimension sizes.
 /// Broadcasting for binary ops is implemented explicitly in [`Tensor::broadcast_binary`].
+///
+/// FIXME: no ownership transfer / view types — always clones buffers for simplicity.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tensor {
     data: Vec<f32>,
@@ -127,5 +129,13 @@ impl Tensor {
             shape: out_shape,
             dtype: DType::F32,
         })
+    }
+}
+
+#[cfg(test)]
+mod planned_unimplemented_markers {
+    #[allow(dead_code)]
+    fn _strided_view_stub() {
+        unimplemented!("TODO: non-contiguous views without full copy");
     }
 }

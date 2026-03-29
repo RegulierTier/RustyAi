@@ -1,4 +1,6 @@
 //! Helpers for backward passes: axis reductions, GELU/LayerNorm derivatives.
+//!
+//! FIXME: numerically sensitive ops could use higher precision accumulators (f64 scratch).
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 

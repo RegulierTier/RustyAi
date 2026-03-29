@@ -2,6 +2,8 @@
 //!
 //! Uses a simple linear congruential generator (LCG) — not cryptographically secure,
 //! but sufficient for weight initialization and reproducible tests.
+//!
+//! FIXME: no Kaiming / LLaMA-style init presets.
 
 use rusty_ai_core::{DType, Tensor, TensorError};
 

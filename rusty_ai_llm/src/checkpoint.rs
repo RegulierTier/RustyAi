@@ -2,6 +2,8 @@
 //!
 //! Tensor names follow a stable RustyAi scheme (`blocks.{i}.*`). Loading GPT-2 checkpoints from the Hub
 //! is implemented in [`gpt2_hf`](crate::gpt2_hf).
+//!
+//! TODO: shard / multi-file checkpoints; `safetensors` streaming for huge models.
 
 use std::collections::HashMap;
 use std::fs;

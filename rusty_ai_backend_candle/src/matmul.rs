@@ -1,4 +1,6 @@
 //! Batched 2D matrix multiply `C = A @ B` with shapes `(m, k)` and `(k, n)`.
+//!
+//! TODO: autotune batch vs `rusty_ai_core::matmul` for hybrid CPU/Candle pipelines.
 
 use candle_core::{Device, Tensor};
 

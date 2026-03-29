@@ -1,4 +1,6 @@
 //! First-order optimization: SGD and Adam on [`rusty_ai_autograd::Variable`] parameters.
+//!
+//! TODO: AdamW, learning-rate schedulers, gradient clipping.
 
 use std::rc::Rc;
 

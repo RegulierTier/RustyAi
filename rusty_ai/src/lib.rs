@@ -2,6 +2,8 @@
 //!
 //! Submodules mirror dependency crates: [`core`], [`autograd`], [`nn`], [`ml`], [`llm`]
 //! (see `Cargo.toml` members: `rusty_ai_core`, `rusty_ai_autograd`, etc.).
+//!
+//! TODO: higher-level “agent” or HTTP client crates are intentionally out of scope here.
 
 pub use rusty_ai_autograd as autograd;
 pub use rusty_ai_core as core;
@@ -26,3 +28,11 @@ pub use rusty_ai_llm::{
 };
 pub use rusty_ai_ml::{Adam, Sgd};
 pub use rusty_ai_nn::Linear;
+
+#[cfg(test)]
+mod planned_unimplemented_markers {
+    #[allow(dead_code)]
+    fn _llm_backend_trait_stub() {
+        unimplemented!("TODO: pluggable remote LLM backend trait for IDE-style apps");
+    }
+}

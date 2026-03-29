@@ -1,4 +1,6 @@
 //! [`Variable`]: a node in the computation graph with optional gradients.
+//!
+//! TODO: gradient checkpointing / activation rematerialization for large LM training steps.
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;

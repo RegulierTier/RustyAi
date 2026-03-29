@@ -1,4 +1,6 @@
 //! Batched affine transform for 3-D activations `(batch, seq, *)` — no autograd.
+//!
+//! FIXME: no fused bias+GEMM dispatch (relies on generic `matmul`).
 
 use rusty_ai_core::{add, matmul, Tensor, TensorError};
 

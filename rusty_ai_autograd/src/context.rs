@@ -1,4 +1,6 @@
 //! Thread-local flag: when disabled, [`crate::Variable`] constructors do not record `Op`s.
+//!
+//! TODO: optional nested `no_grad` scopes with depth counter (if needed for composability).
 
 use std::cell::Cell;
 

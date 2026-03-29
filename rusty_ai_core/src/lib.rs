@@ -5,6 +5,8 @@
 //! - NumPy-style [`broadcast_shapes`] for elementwise binary ops.
 //! - Linear algebra via [`matmul`] (2D and batched 3D) using the `matrixmultiply` crate.
 //! - Activations and reductions used by autograd, neural nets, and LLM code.
+//!
+//! TODO: optional BLIS/OpenBLAS linkage behind a feature for very large GEMMs.
 
 mod dtype;
 mod error;
@@ -21,3 +23,11 @@ pub use ops::{
 };
 pub use shape::broadcast_shapes;
 pub use tensor::Tensor;
+
+#[cfg(test)]
+mod planned_unimplemented_markers {
+    #[allow(dead_code)]
+    fn _sparse_tensor_stub() {
+        unimplemented!("TODO: sparse / structured tensors (not implemented)");
+    }
+}

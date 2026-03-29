@@ -4,6 +4,8 @@ Hier liegen **menschenlesbare** Beschreibungen des Projekts. Die Rust-API bleibt
 
 | Datei | Zweck |
 | ----- | ----- |
+| **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** | **Pfad B (IDE-nah):** Zielarchitektur (Orchestrierung, LLM-Backends, Tools, Feedback-Schleifen), Einordnung von RustyAi, **phasenweise Roadmap** (MVP → Kontext → Betrieb). |
+| **[../rusty_ai_agent/README.md](../rusty_ai_agent/README.md)** | Crate **`rusty_ai_agent`:** `LlmBackend`, `ToolInvocation`, JSON Schema (`schemas/tool_invocation.json`). |
 | **[HANDBUCH.md](HANDBUCH.md)** | Zentrale Referenz: Architektur, alle Workspace-Crates, typische Abläufe (Regression mit MLP, **Mini-GPT-Training** mit Next-Token-Cross-Entropy, LLM-Inferenz mit KV-Cache), **Checkpoints / GPT-2-Import / GPT-2-BPE (`gpt2-bpe`) / Candle-Backend**, Grenzen und Glossar. |
 | **[BERICHT_PRÜFUNG.md](BERICHT_PRÜFUNG.md)** | Prüfbericht zur Scope-Erweiterung (Korrekturen, Tests, Grenzen). |
 | **[../rusty_ai_backend_candle/README.md](../rusty_ai_backend_candle/README.md)** | Kurzbeschreibung des optionalen Candle-Crates (CPU/CUDA, FP8, All-Reduce-Referenz). |

@@ -1,3 +1,7 @@
+//! Tensor and shape error types.
+//!
+//! TODO: structured `source()` chains for IO / safetensors when surfacing load failures.
+
 use std::fmt;
 
 /// Errors arising from incompatible tensor shapes or invalid reshape/broadcast operations.

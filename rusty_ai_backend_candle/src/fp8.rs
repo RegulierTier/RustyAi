@@ -1,4 +1,6 @@
 //! FP8 E4M3 via Candle’s [`DType::F8E4M3`](candle_core::DType) — meaningful on CUDA when built with `--features cuda`.
+//!
+//! FIXME: training in FP8 (scaling) not implemented — conversion helpers only.
 
 use candle_core::{DType, Device, Tensor};
 

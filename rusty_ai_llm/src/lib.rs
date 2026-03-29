@@ -5,6 +5,8 @@
 //!
 //! Inference uses plain [`rusty_ai_core::Tensor`] weights ([`MiniGpt`]). Training uses
 //! [`TrainableMiniGpt`] with [`rusty_ai_autograd::Variable`] (same forward numerically).
+//!
+//! TODO: public “agent/IDE” hooks (stop sequences, tool protocol) live outside this crate for now.
 
 mod attention;
 mod attention_var;
@@ -45,3 +47,12 @@ pub use gpt2_tokenizer::{
 
 #[cfg(feature = "hf-hub")]
 pub use checkpoint::load_minigpt_from_hf;
+
+#[cfg(test)]
+mod planned_unimplemented_markers {
+    /// Grep anchor for `unimplemented!`; not invoked by tests.
+    #[allow(dead_code)]
+    fn _fill_in_middle_stub() {
+        unimplemented!("TODO: FIM (fill-in-the-middle) span masking for codegen-style edits");
+    }
+}

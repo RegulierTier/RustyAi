@@ -76,6 +76,7 @@ cargo run -p rusty_ai --example train_mini_gpt
 | Crate | Rolle |
 | ----- | ----- |
 | `rusty_ai` | Sammel-Crate: Re-Exports der übrigen Pakete |
+| `rusty_ai_agent` | Phase-0-Agent-Protokoll: `LlmBackend`, Chat-/Tool-JSON (IDE-Roadmap) |
 | `rusty_ai_core` | Tensoren, Formen, numerische Operationen |
 | `rusty_ai_autograd` | `Variable`, Rückwärtsrechnung |
 | `rusty_ai_nn` | Schichten & Aktivierungen |
@@ -91,6 +92,8 @@ Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/cra
 
 | Ressource | Inhalt |
 | --------- | ------ |
+| **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B (IDE-nah): Zielarchitektur, Tool-Loops, Roadmap in Phasen |
+| **[`rusty_ai_agent/README.md`](rusty_ai_agent/README.md)** | `LlmBackend`-Trait, Tool-Protokoll, JSON Schema (`schemas/`) |
 | **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, Mini-GPT-Training, LLM-Inferenz mit KV-Cache), Checkpoints/GPT-2/Candle, Grenzen, Glossar |
 | **[`docs/README.md`](docs/README.md)** | Kurzüberblick und Verweise auf weiterführende Dateien |
 | **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht zur Scope-Erweiterung (Tests, Korrekturen) |

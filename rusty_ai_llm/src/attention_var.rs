@@ -1,4 +1,6 @@
 //! Causal attention built from [`rusty_ai_autograd::Variable`] (matches tensor [`causal_attention`] numerically).
+//!
+//! TODO: fused or checkpointed backward for large `L` (memory).
 
 use std::rc::Rc;
 

@@ -1786,6 +1786,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty_ai_agent"
+version = "1.4.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "rusty_ai_autograd"
 version = "1.4.0"
 dependencies = [

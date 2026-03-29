@@ -1,4 +1,6 @@
 //! Fixed 256-token vocabulary: raw bytes as `usize` token ids (UTF-8 safe at byte level).
+//!
+//! FIXME: poor token efficiency vs BPE for source code — prefer `gpt2-bpe` or a code tokenizer for serious use.
 
 /// Byte-level tokenizer: one token per byte (`0..256`).
 ///

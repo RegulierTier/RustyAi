@@ -1,4 +1,7 @@
 //! Autoregressive text generation and token sampling from logits.
+//!
+//! - TODO: streaming / callback-based decode for IDE-style consumers.
+//! - FIXME: `argmax` uses `partial_cmp`; tie-breaking is not IEEE-stable across platforms.
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 
@@ -188,5 +191,14 @@ mod tests {
         let ids = ByteTokenizer::encode("abc");
         let out = generate_from_ids(&model, &ids, 0, 1.0, 1.0, &mut 0u32).unwrap();
         assert_eq!(out, ids);
+    }
+}
+
+/// Grep anchor for `unimplemented!` (planned API); not called from production code.
+#[cfg(test)]
+mod planned_unimplemented_markers {
+    #[allow(dead_code)]
+    fn _streaming_decode_stub() {
+        unimplemented!("TODO: streaming token generation (callback / async)");
     }
 }

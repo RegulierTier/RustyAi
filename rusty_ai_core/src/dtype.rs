@@ -5,6 +5,8 @@
 ///
 /// **FP8** (e.g. NVIDIA E4M3) is not stored in [`crate::Tensor`]; use the optional
 /// `rusty_ai_backend_candle` crate (Candle `DType::F8E4M3`) for GPU-oriented quantization.
+///
+/// TODO: `bf16` / `f16` in [`crate::Tensor`] once ops and autograd agree on semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DType {
     /// IEEE-754 single precision (default for training and inference in this workspace).

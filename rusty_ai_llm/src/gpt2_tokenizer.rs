@@ -1,5 +1,7 @@
 //! GPT-2–compatible BPE using Hugging Face [`tokenizers`](https://crates.io/crates/tokenizers) (Rust).
 //! Load `tokenizer.json` from a Hugging Face model directory (same layout as `transformers`).
+//!
+//! TODO: generic HF tokenizer surface (not only GPT-2) for code-specialized models.
 
 use std::path::Path;
 

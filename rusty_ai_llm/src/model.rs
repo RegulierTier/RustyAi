@@ -1,4 +1,6 @@
 //! Small GPT-style decoder: token + learned positional embeddings, transformer blocks, LM head.
+//!
+//! FIXME: learned absolute positions cap extrapolation beyond `max_seq` (consider RoPE / ALiBi for long code contexts).
 
 use rusty_ai_core::{add, Tensor, TensorError};
 use rusty_ai_nn::{gelu, glorot_uniform, layer_norm_affine, ones_scale, zeros_bias};

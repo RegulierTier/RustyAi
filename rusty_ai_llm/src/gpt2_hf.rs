@@ -5,6 +5,8 @@
 //! - If `lm_head.weight` is absent (weight tying), `lm_head_w` is copied from token embeddings (`wte`).
 //! - **Tokenizer:** [`ByteTokenizer`](crate::ByteTokenizer) is byte-level only. For OpenAI/HF GPT-2 BPE, enable feature **`gpt2-bpe`**
 //!   and use `Gpt2Tokenizer` with `tokenizer.json` from the same checkpoint directory.
+//!
+//! FIXME: other HF architectures (CodeLlama, etc.) are not mapped — only GPT-2 layout → [`MiniGpt`](crate::MiniGpt).
 
 use std::collections::HashMap;
 use std::fs;

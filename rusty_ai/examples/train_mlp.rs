@@ -1,6 +1,8 @@
 //! Example: two-layer MLP regression on synthetic data (CPU + autograd + SGD).
 //!
 //! Target: `y ≈ 2*x0 - x1 + noise`. Loss decreases over epochs if the run succeeds.
+//!
+//! FIXME: toy data only — swap in CSV or file-backed tensors for integration-style demos.
 
 use std::rc::Rc;
 

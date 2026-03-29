@@ -1,4 +1,6 @@
 //! KV-cache storage for autoregressive decoding: past keys/values per layer.
+//!
+//! TODO: paged / windowed KV for very long contexts (reduce memory growth).
 
 use rusty_ai_core::{Tensor, TensorError};
 

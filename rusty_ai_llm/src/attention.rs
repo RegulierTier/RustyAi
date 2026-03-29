@@ -1,4 +1,6 @@
 //! Scaled dot-product attention with a causal (lower-triangular) mask.
+//!
+//! FIXME: \(O(L^2)\) memory/time — no flash/sliding-window attention.
 
 use rusty_ai_core::{matmul, mul, softmax, transpose_batched_last2, Tensor, TensorError};
 

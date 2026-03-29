@@ -4,6 +4,8 @@
 //! - Multi-GPU NCCL is available in Candle when built with `features = ["nccl"]`; production training
 //!   should use a process group that calls into NCCL `AllReduce` — this crate documents the **math**
 //!   (`sum / world_size`) that must match distributed steps.
+//!
+//! TODO: thin async wrapper around real NCCL process groups when integrating with a trainer.
 
 /// Error if replica buffers disagree on length.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,6 @@
 //! Reshape helpers for multi-head attention: `(batch, seq, d_model)` ↔ `(batch * heads, seq, d_head)`.
+//!
+//! TODO: GQA / MQA layout helpers when models use grouped-query attention.
 
 use rusty_ai_core::{Tensor, TensorError};
 

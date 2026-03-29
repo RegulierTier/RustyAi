@@ -1,4 +1,6 @@
 //! Tensor-only activations and normalization (no autograd hooks here).
+//!
+//! TODO: SiLU/Swish, RMSNorm variants used by some modern LMs.
 
 use rusty_ai_core::{add, mul, Tensor, TensorError};
 

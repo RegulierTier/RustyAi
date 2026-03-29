@@ -1,4 +1,6 @@
 //! Trainable [`MiniGpt`](crate::MiniGpt) using [`rusty_ai_autograd::Variable`] (same forward as tensor model).
+//!
+//! TODO: optional GPU / mixed-precision training path (e.g. via Candle) for larger runs.
 
 use std::rc::Rc;
 

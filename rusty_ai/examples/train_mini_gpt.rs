@@ -1,5 +1,7 @@
 //! Mini-GPT next-token training on a tiny byte sequence (cross-entropy + Adam, CPU autograd).
 //!
+//! TODO: load real corpus from disk / chunk long files for practical code-LM experiments.
+//!
 //! Uses [`TrainableMiniGpt`] with the same forward as [`MiniGpt`](rusty_ai_llm::MiniGpt); loss should
 //! decrease over a few steps on this small repeated pattern.
 

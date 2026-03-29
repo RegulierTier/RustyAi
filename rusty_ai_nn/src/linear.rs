@@ -1,4 +1,6 @@
 //! Fully connected (affine) layer for autograd training.
+//!
+//! FIXME: no int8 / LoRA adapters — full dense weights only.
 
 use std::rc::Rc;
 

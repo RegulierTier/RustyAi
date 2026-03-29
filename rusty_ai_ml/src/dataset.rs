@@ -1,4 +1,6 @@
 //! Batching and simple column-wise normalization.
+//!
+//! TODO: streaming / mmap datasets for large corpora (e.g. code files on disk).
 
 use rusty_ai_core::{ShapeError, Tensor, TensorError};
 

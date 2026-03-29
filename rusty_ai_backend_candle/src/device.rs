@@ -1,3 +1,7 @@
+//! Candle device selection for the optional backend.
+//!
+//! FIXME: no Metal / WebGPU paths — CPU vs CUDA only.
+
 use candle_core::Device;
 
 /// Where to run Candle ops (CPU or CUDA device index).

@@ -1,4 +1,6 @@
 //! Head split/merge (same layout as `rusty_ai_llm::heads`) for autograd.
+//!
+//! TODO: optional fused split/merge with fewer temporaries.
 
 use rusty_ai_core::{Tensor, TensorError};
 
