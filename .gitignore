@@ -1,6 +1,7 @@
 # Rust
 /target/
 **/*.rs.bk
+*.log
 
 # IDE / OS
 .cursor/

@@ -97,10 +97,11 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Decoder-only-Modell und Textpipeline.
 
 - **`ByteTokenizer`:** 256 Zeichen; `encode` / `decode`.
+- **Feature `gpt2-bpe`:** `Gpt2Tokenizer` lädt Hugging-Face-`tokenizer.json` (Rust-Crate `tokenizers`); `encode` / `decode` mit Token-IDs passend zu HF-GPT-2 (`vocab_size` typisch 50257). Hilfsfunktionen: `generate_from_ids` (Tokenizer-unabhängig), `generate_gpt2_text` (Prompt-String → BPE → Sampling → Text).
 - **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
 - **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, Pre-LayerNorm (mit γ/β) + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head` nach finaler LayerNorm (ebenfalls γ/β).
 - **`causal_attention` / `attention_single_query`:** Skaliertes Dot-Product; ersteres mit kausaler Maske für volle Sequenz, letzteres für einen Query mit Sequenzlänge 1 gegen die vollständige Key-/Value-Historie (nach KV-Konkatenation). Keine zusätzliche Maske nötig, da alle Keys „Vergangenheit“ sind.
-- **`generate` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt **Prefill** (einmalige volle Vorwärtsrechnung über den Prompt) und danach **KV-Cache** pro Layer. Bei `max_tokens == 0` wird nur encodiert/decodiert, ohne Modellaufruf.
+- **`generate` / `generate_from_ids` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt den Byte-Tokenizer; `generate_from_ids` arbeitet auf beliebigen Token-IDs (z. B. nach `Gpt2Tokenizer::encode`). **Prefill** + **KV-Cache** wie oben. Bei `max_tokens == 0`: `generate` decodiert nur den Prompt; `generate_from_ids` gibt die Prompt-IDs unverändert zurück (ohne Forward).
 - **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
 - **Weitere API:** `MiniGpt::embed_token_at(id, pos)` — kombinierte Token- und Positionszeile für einen Zeitschritt, Shape `(1, 1, d_model)`; wird intern für Decode-Schritte genutzt.
 
@@ -108,7 +109,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 **Checkpoints (RustyAi-Format):** `save_minigpt_checkpoint(dir, &model)` schreibt `config.json` (`model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`/`n_layer`/…) und `model.safetensors` mit Tensor-Namen `tok_embed`, `blocks.{i}.*`, `lm_head_w`, …; `load_minigpt_checkpoint(dir)` rekonstruiert ein [`MiniGpt`]. Optional: Crate-Feature **`hf-hub`** und `load_minigpt_from_hf` für Dateien aus einem Hub-Repo (Cache).
 
-**GPT-2-`safetensors`:** `load_minigpt_from_gpt2_safetensors(path, cfg)` mappt HF-Schlüssel (`transformer.h.{i}.attn.c_attn.weight` usw.) auf die interne Struktur. `c_attn` wird in Q/K/V-Matrizen **zerlegt**; `lm_head.weight` akzeptiert sowohl HF-Shape `[vocab, d_model]` als auch RustyAi `[d_model, vocab]`. **Tokenizer:** Für dieselbe Textpipeline wie OpenAI-GPT-2 ist ein **BPE-Tokenizer** nötig; `ByteTokenizer` bleibt ein einfaches Byte-Modell.
+**GPT-2-`safetensors`:** `load_minigpt_from_gpt2_safetensors(path, cfg)` mappt HF-Schlüssel (`transformer.h.{i}.attn.c_attn.weight` usw.) auf die interne Struktur. `c_attn` wird in Q/K/V-Matrizen **zerlegt**; `lm_head.weight` akzeptiert sowohl HF-Shape `[vocab, d_model]` als auch RustyAi `[d_model, vocab]`. **Tokenizer:** Feature **`gpt2-bpe`**: `Gpt2Tokenizer::from_file` / `from_model_dir` mit `tokenizer.json` aus dem HF-Modellordner; `ByteTokenizer` bleibt das einfache Byte-Modell für Demos und Training ohne GPT-2-Vokabular.
 
 ---
 
@@ -124,7 +125,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 ### 2.7 `rusty_ai`
 
-Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, …). Mit Feature **`candle`** zusätzlich `rusty_ai_backend_candle` als Modul `candle`.
+Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, `generate_from_ids`, …). Mit Feature **`candle`** zusätzlich `rusty_ai_backend_candle` als Modul `candle`. Mit **`gpt2-bpe`**: `Gpt2Tokenizer`, `generate_gpt2_text`, `Gpt2PipelineError`.
 
 ---
 
@@ -140,12 +141,12 @@ Siehe `rusty_ai/examples/train_mlp.rs`.
 
 ### 3.2 LLM: nur Vorwärtsrechnung / Sampling
 
-1. `MiniGpt::random(MiniGptConfig::default(), &mut seed)` oder eigene Konfiguration.
-2. Prompt mit `ByteTokenizer::encode` → Token-IDs.
+1. `MiniGpt::random(MiniGptConfig::default(), &mut seed)` oder eigene Konfiguration (bei importiertem GPT-2: `MiniGptConfig` mit passenden `vocab_size`, `d_model`, …).
+2. Prompt → Token-IDs: `ByteTokenizer::encode` **oder** mit Feature `gpt2-bpe`: `Gpt2Tokenizer::encode`.
 3. Je nach Ziel:
    - Volle Logits `(1, seq, vocab)`: `MiniGpt::forward(&token_ids)`.
    - Nur letztes Zeitschritt (z. B. nächstes Token): `forward_last` — intern ein voller Forward ohne KV-Cache.
-   - Text generieren: `generate(&model, prompt, max_tokens, temperature, top_p, &mut seed)` — Prefill + KV-Cache pro generiertem Token.
+   - Text generieren: `generate` (Byte-Tokenizer) **oder** `generate_from_ids` + `decode` **oder** `generate_gpt2_text` (BPE) — jeweils Prefill + KV-Cache pro generiertem Token.
 
 **Manuelles Sampling mit KV-Cache** (gleiche Logik wie `generate`, aber eigenes Stepping):
 
@@ -158,6 +159,19 @@ Schleife: nächstes Token wählen (z. B. sample_token)
 ```
 
 Dabei ist **`position`** die **absolute** Indexposition des gerade erzeugten Tokens in der laufenden Sequenz (0-basiert), also nach dem ersten neuen Token typisch `prompt_len`, dann `prompt_len + 1`, … — entspricht der Zeile in `embed_positions` / `embed_token_at`.
+
+#### 3.2.1 GPT-2 mit HF-Gewichten und BPE (Rust-only)
+
+Für **dieselbe Tokenisierung** wie bei HF GPT-2 (Byte-Level-BPE, `tokenizer.json`):
+
+1. Workspace / Crate mit **`--features gpt2-bpe`** bauen (`rusty_ai` oder `rusty_ai_llm`).
+2. **`MiniGptConfig`** exakt auf den Checkpoint abstimmen (u. a. `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq`).
+3. Modell: **`load_minigpt_from_gpt2_safetensors("…/model.safetensors", cfg)`**.
+4. Tokenizer: **`Gpt2Tokenizer::from_model_dir("…/")`**, wobei der Ordner **`tokenizer.json`** enthält (typisch derselbe wie die Modell-Datei).
+5. Abgleich: **`tok.vocab_size()`** und **`cfg.vocab_size`** sollten übereinstimmen.
+6. Text: **`generate_gpt2_text(&model, &tok, prompt, max_new, temperature, top_p, &mut seed)`** oder **`tok.encode`** → **`generate_from_ids`** → **`tok.decode`**.
+
+Es ist **keine Python-Toolchain** erforderlich; Tests und CI bleiben bei **Cargo**/`cargo test`. Optionaler Integrations-Test: Umgebungsvariable **`RUSTY_AI_TEST_TOKENIZER`** (Pfad zu `tokenizer.json`), dann `cargo test -p rusty_ai_llm --features gpt2-bpe -- --ignored`.
 
 ### 3.3 Mini-GPT trainieren (Next-Token, Autograd)
 
@@ -221,5 +235,6 @@ Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der le
 | `candle` | Bindet `rusty_ai_backend_candle` ein; Modul `rusty_ai::candle`. |
 | `candle-cuda` | Wie `candle`, Candle mit CUDA. |
 | `hf-hub` | `rusty_ai_llm` mit Hub-Download; Re-Export `load_minigpt_from_hf`. |
+| `gpt2-bpe` | `tokenizers`-Dependency; `Gpt2Tokenizer`, `generate_gpt2_text`, `Gpt2PipelineError` (Re-Exports in `rusty_ai`). |
 
 Direkt auf `rusty_ai_llm` kann ebenfalls `hf-hub` aktiviert werden, ohne die Meta-Crate.

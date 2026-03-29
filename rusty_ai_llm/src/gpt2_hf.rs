@@ -3,8 +3,8 @@
 //! - `c_attn` is **fused** QKV (Hugging Face `Conv1D`): weight shape **`[n_embd, 3 * n_embd]`** (rows × cols).
 //!   Some exports use **`[3 * n_embd, n_embd]`**; those are transposed before splitting.
 //! - If `lm_head.weight` is absent (weight tying), `lm_head_w` is copied from token embeddings (`wte`).
-//! - **Tokenizer:** RustyAi’s [`ByteTokenizer`](crate::ByteTokenizer) is not OpenAI BPE; use this path for **weight porting**
-//!   and run text with a BPE tokenizer elsewhere, or extend the crate with BPE later.
+//! - **Tokenizer:** [`ByteTokenizer`](crate::ByteTokenizer) is byte-level only. For OpenAI/HF GPT-2 BPE, enable feature **`gpt2-bpe`**
+//!   and use `Gpt2Tokenizer` with `tokenizer.json` from the same checkpoint directory.
 
 use std::collections::HashMap;
 use std::fs;
@@ -102,7 +102,11 @@ fn split_qkv(w: &Tensor, key: &str) -> Result<(Tensor, Tensor, Tensor), Gpt2Mapp
     }
 }
 
-fn split_qkv_row_major(w: &Tensor, d: usize, key: &str) -> Result<(Tensor, Tensor, Tensor), Gpt2MappingError> {
+fn split_qkv_row_major(
+    w: &Tensor,
+    d: usize,
+    key: &str,
+) -> Result<(Tensor, Tensor, Tensor), Gpt2MappingError> {
     if w.shape() != [d, 3 * d] {
         return Err(Gpt2MappingError::BadShape {
             key: key.to_string(),
@@ -154,8 +158,10 @@ fn split_qkv_bias(b: &Tensor, key: &str) -> Result<(Tensor, Tensor, Tensor), Gpt
         });
     }
     let b_q = Tensor::from_vec(flat[0..d].to_vec(), vec![1, d]).map_err(CheckpointError::from)?;
-    let b_k = Tensor::from_vec(flat[d..2 * d].to_vec(), vec![1, d]).map_err(CheckpointError::from)?;
-    let b_v = Tensor::from_vec(flat[2 * d..3 * d].to_vec(), vec![1, d]).map_err(CheckpointError::from)?;
+    let b_k =
+        Tensor::from_vec(flat[d..2 * d].to_vec(), vec![1, d]).map_err(CheckpointError::from)?;
+    let b_v =
+        Tensor::from_vec(flat[2 * d..3 * d].to_vec(), vec![1, d]).map_err(CheckpointError::from)?;
     Ok((b_q, b_k, b_v))
 }
 
@@ -264,9 +270,8 @@ pub fn gpt2_state_dict_to_minigpt(
             .get(&format!("{pfx}.mlp.c_fc.bias"))
             .ok_or_else(|| Gpt2MappingError::Missing(format!("{pfx}.mlp.c_fc.bias")))?;
         let b_ff1 = match c_fc_b.shape() {
-            [f_sz] if *f_sz == f => {
-                Tensor::from_vec(c_fc_b.data().to_vec(), vec![1, f]).map_err(CheckpointError::from)?
-            }
+            [f_sz] if *f_sz == f => Tensor::from_vec(c_fc_b.data().to_vec(), vec![1, f])
+                .map_err(CheckpointError::from)?,
             [1, f_sz] if *f_sz == f => c_fc_b.clone(),
             _ => {
                 return Err(Gpt2MappingError::BadShape {
@@ -294,9 +299,8 @@ pub fn gpt2_state_dict_to_minigpt(
             .get(&format!("{pfx}.mlp.c_proj.bias"))
             .ok_or_else(|| Gpt2MappingError::Missing(format!("{pfx}.mlp.c_proj.bias")))?;
         let b_ff2 = match c_proj_mlp_b.shape() {
-            [d_sz] if *d_sz == d => {
-                Tensor::from_vec(c_proj_mlp_b.data().to_vec(), vec![1, d]).map_err(CheckpointError::from)?
-            }
+            [d_sz] if *d_sz == d => Tensor::from_vec(c_proj_mlp_b.data().to_vec(), vec![1, d])
+                .map_err(CheckpointError::from)?,
             [1, d_sz] if *d_sz == d => c_proj_mlp_b.clone(),
             _ => {
                 return Err(Gpt2MappingError::BadShape {
@@ -347,7 +351,10 @@ pub fn gpt2_state_dict_to_minigpt(
         .get("transformer.ln_f.bias")
         .or_else(|| hf.get("ln_f.bias"))
         .ok_or_else(|| Gpt2MappingError::Missing("transformer.ln_f.bias".into()))?;
-    out.insert("ln_f_gamma".into(), ln1_to_affine(ln_f_w, d, "ln_f.weight")?);
+    out.insert(
+        "ln_f_gamma".into(),
+        ln1_to_affine(ln_f_w, d, "ln_f.weight")?,
+    );
     out.insert("ln_f_beta".into(), ln1_to_affine(ln_f_b, d, "ln_f.bias")?);
 
     let lm = hf
@@ -370,9 +377,10 @@ pub fn gpt2_state_dict_to_minigpt(
     };
     out.insert("lm_head_w".into(), lm_head_w);
 
-    let lm_b = hf.get("lm_head.bias").cloned().unwrap_or_else(|| {
-        Tensor::zeros(&[1, v], DType::F32).expect("zeros")
-    });
+    let lm_b = hf
+        .get("lm_head.bias")
+        .cloned()
+        .unwrap_or_else(|| Tensor::zeros(&[1, v], DType::F32).expect("zeros"));
     if lm_b.shape() != [1, v] && lm_b.shape() != [v] {
         return Err(Gpt2MappingError::BadShape {
             key: "lm_head.bias".into(),
@@ -392,7 +400,9 @@ pub fn gpt2_state_dict_to_minigpt(
 
 fn ln1_to_affine(t: &Tensor, d: usize, key: &str) -> Result<Tensor, Gpt2MappingError> {
     match t.shape() {
-        [dd] if *dd == d => Ok(Tensor::from_vec(t.data().to_vec(), vec![1, d]).map_err(CheckpointError::from)?),
+        [dd] if *dd == d => {
+            Ok(Tensor::from_vec(t.data().to_vec(), vec![1, d]).map_err(CheckpointError::from)?)
+        }
         [1, dd] if *dd == d => Ok(t.clone()),
         _ => Err(Gpt2MappingError::BadShape {
             key: key.to_string(),
@@ -409,9 +419,8 @@ pub fn load_minigpt_from_gpt2_safetensors(
     path: impl AsRef<Path>,
     cfg: MiniGptConfig,
 ) -> Result<crate::MiniGpt, Gpt2MappingError> {
-    let buf = fs::read(path.as_ref()).map_err(|e| {
-        Gpt2MappingError::Checkpoint(CheckpointError::Io(e))
-    })?;
+    let buf = fs::read(path.as_ref())
+        .map_err(|e| Gpt2MappingError::Checkpoint(CheckpointError::Io(e)))?;
     let st = SafeTensors::deserialize(&buf)?;
     let mut hf = HashMap::new();
     for (name, tv) in st.tensors() {
@@ -501,7 +510,8 @@ mod gpt2_tests {
             );
             hf.insert(
                 format!("transformer.h.{i}.attn.c_proj.bias"),
-                Tensor::from_vec(d[&format!("{p}.b_o")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(d[&format!("{p}.b_o")].data().to_vec(), vec![cfg.d_model])
+                    .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.mlp.c_fc.weight"),
@@ -509,7 +519,8 @@ mod gpt2_tests {
             );
             hf.insert(
                 format!("transformer.h.{i}.mlp.c_fc.bias"),
-                Tensor::from_vec(d[&format!("{p}.b_ff1")].data().to_vec(), vec![cfg.ffn_dim]).unwrap(),
+                Tensor::from_vec(d[&format!("{p}.b_ff1")].data().to_vec(), vec![cfg.ffn_dim])
+                    .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.mlp.c_proj.weight"),
@@ -517,23 +528,40 @@ mod gpt2_tests {
             );
             hf.insert(
                 format!("transformer.h.{i}.mlp.c_proj.bias"),
-                Tensor::from_vec(d[&format!("{p}.b_ff2")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(d[&format!("{p}.b_ff2")].data().to_vec(), vec![cfg.d_model])
+                    .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.ln_1.weight"),
-                Tensor::from_vec(d[&format!("{p}.ln1_gamma")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(
+                    d[&format!("{p}.ln1_gamma")].data().to_vec(),
+                    vec![cfg.d_model],
+                )
+                .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.ln_1.bias"),
-                Tensor::from_vec(d[&format!("{p}.ln1_beta")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(
+                    d[&format!("{p}.ln1_beta")].data().to_vec(),
+                    vec![cfg.d_model],
+                )
+                .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.ln_2.weight"),
-                Tensor::from_vec(d[&format!("{p}.ln2_gamma")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(
+                    d[&format!("{p}.ln2_gamma")].data().to_vec(),
+                    vec![cfg.d_model],
+                )
+                .unwrap(),
             );
             hf.insert(
                 format!("transformer.h.{i}.ln_2.bias"),
-                Tensor::from_vec(d[&format!("{p}.ln2_beta")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(
+                    d[&format!("{p}.ln2_beta")].data().to_vec(),
+                    vec![cfg.d_model],
+                )
+                .unwrap(),
             );
         }
         hf.insert(
@@ -583,14 +611,22 @@ mod gpt2_tests {
         hf.insert("transformer.wte.weight".into(), d["tok_embed"].clone());
         hf.insert("transformer.wpe.weight".into(), d["pos_embed"].clone());
         let p = "blocks.0";
-        let fused = fuse_qkv(&d[&format!("{p}.w_q")], &d[&format!("{p}.w_k")], &d[&format!("{p}.w_v")]);
+        let fused = fuse_qkv(
+            &d[&format!("{p}.w_q")],
+            &d[&format!("{p}.w_k")],
+            &d[&format!("{p}.w_v")],
+        );
         hf.insert(
             "transformer.h.0.attn.c_attn.weight".into(),
             transpose_2d(&fused).unwrap(),
         );
         hf.insert(
             "transformer.h.0.attn.c_attn.bias".into(),
-            fuse_qkv_bias(&d[&format!("{p}.b_q")], &d[&format!("{p}.b_k")], &d[&format!("{p}.b_v")]),
+            fuse_qkv_bias(
+                &d[&format!("{p}.b_q")],
+                &d[&format!("{p}.b_k")],
+                &d[&format!("{p}.b_v")],
+            ),
         );
         hf.insert(
             "transformer.h.0.attn.c_proj.weight".into(),
@@ -619,13 +655,18 @@ mod gpt2_tests {
         for (suffix, gamma) in [("ln_1", "ln1_gamma"), ("ln_2", "ln2_gamma")] {
             hf.insert(
                 format!("transformer.h.0.{suffix}.weight"),
-                Tensor::from_vec(d[&format!("{p}.{gamma}")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(
+                    d[&format!("{p}.{gamma}")].data().to_vec(),
+                    vec![cfg.d_model],
+                )
+                .unwrap(),
             );
         }
         for (suffix, beta) in [("ln_1", "ln1_beta"), ("ln_2", "ln2_beta")] {
             hf.insert(
                 format!("transformer.h.0.{suffix}.bias"),
-                Tensor::from_vec(d[&format!("{p}.{beta}")].data().to_vec(), vec![cfg.d_model]).unwrap(),
+                Tensor::from_vec(d[&format!("{p}.{beta}")].data().to_vec(), vec![cfg.d_model])
+                    .unwrap(),
             );
         }
         hf.insert(

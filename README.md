@@ -14,9 +14,9 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | **Autograd** | `Variable`, dynamischer Graph, `backward`, u. a. `MatMul`, `Mul`, `Add` (Broadcast-Gradienten), GELU, `layer_norm` / `layer_norm_affine`, Softmax, Embedding-Gather, Split/Merge-Heads, Cross-Entropy (Next-Token), `no_grad` für Inferenz |
 | **NN** | `Linear`, GELU, `layer_norm` / `layer_norm_affine` (γ/β wie PyTorch), `ones_scale` / `zeros_bias`, Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
-| **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt` (Tensor), `TrainableMiniGpt` (Autograd), `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
+| **LLM** | Byte-Tokenizer; optional **`gpt2-bpe`**: `tokenizer.json` / `Gpt2Tokenizer` + `generate_from_ids` / `generate_gpt2_text` für GPT-2-BPE-Parität (Rust-Crate `tokenizers`). Causal-Attention, `MiniGpt`, `TrainableMiniGpt`, `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
 | **Checkpoints** | `save_minigpt_checkpoint` / `load_minigpt_checkpoint` (`config.json` + `model.safetensors`); optional Feature **`hf-hub`** zum Herunterladen aus dem Hugging Face Hub |
-| **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — Mapping von HF-GPT-2-Gewichten (fused QKV → getrennte Matrizen); **Tokenizer:** RustyAi bleibt Byte-Level; OpenAI-BPE ist separat nötig für identische Tokenisierung |
+| **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — HF-GPT-2-Gewichte (fused QKV → getrennte Matrizen). **BPE:** Feature `gpt2-bpe` auf `rusty_ai` / `rusty_ai_llm` + `Gpt2Tokenizer::from_model_dir` (Ordner mit `model.safetensors` und `tokenizer.json`) und `generate_gpt2_text` bzw. `generate_from_ids` |
 | **Candle-Backend** | Crate `rusty_ai_backend_candle`: CPU- oder CUDA-**Matmul**, **FP8 E4M3**-Hilfen, Referenz-**All-Reduce-Mittelwert** für Datenparallelität; optional `rusty_ai` mit `--features candle` bzw. `candle-cuda` |
 
 ---
@@ -35,6 +35,8 @@ let mut seed = 1u32;
 let model = MiniGpt::random(MiniGptConfig::default(), &mut seed).unwrap();
 let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
 ```
+
+**GPT-2-Gewichte + BPE** (`cargo build -p rusty_ai --features gpt2-bpe`): `MiniGptConfig` zur Checkpoint-Größe (z. B. `vocab_size: 50257`), `load_minigpt_from_gpt2_safetensors("…/model.safetensors", cfg)`, `Gpt2Tokenizer::from_model_dir("…/")` (enthält `tokenizer.json`), dann `generate_gpt2_text(&model, &tok, prompt, max_new, temp, top_p, &mut seed)`.
 
 Manuelle Inferenz (z. B. eigenes Sampling) über **`forward_prefill`** / **`forward_decode_step`** und **`KvCache::new(model.cfg.n_layers)`** ist im **[Handbuch](docs/HANDBUCH.md)** unter „LLM: Vorwärtsrechnung / Sampling“ beschrieben.
 
@@ -78,7 +80,7 @@ cargo run -p rusty_ai --example train_mini_gpt
 | `rusty_ai_autograd` | `Variable`, Rückwärtsrechnung |
 | `rusty_ai_nn` | Schichten & Aktivierungen |
 | `rusty_ai_ml` | Optimierer & Daten-Helfer |
-| `rusty_ai_llm` | Transformer, Tokenizer, Generierung, safetensors-Checkpoints, GPT-2-Mapping |
+| `rusty_ai_llm` | Transformer, Tokenizer, Generierung, safetensors-Checkpoints, GPT-2-Mapping — siehe [`rusty_ai_llm/README.md`](rusty_ai_llm/README.md) |
 | `rusty_ai_backend_candle` | Optional: Candle (CPU/CUDA), FP8, verteilte Referenz-Ops |
 
 Abhängigkeit der Kernbibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/matrixmultiply) für schnelles CPU-Matmul.
@@ -106,7 +108,7 @@ cargo doc --workspace --no-deps --open
 
 - **Training** bleibt in den Kern-Crates **CPU-Autograd** (`TrainableMiniGpt`). GPU/FP8 und größere Matmuls laufen über das **optionale** Candle-Crate; produktives Multi-GPU-Training nutzt typischerweise NCCL (Candle-Feature `nccl`) oder externe Orchestrierung.
 - **Checkpoints:** Eigenes Format `config.json` + `model.safetensors` (RustyAi-`model_type`: `rusty_ai_minigpt`).
-- **Hugging Face:** GPT-2-`safetensors` können mit `load_minigpt_from_gpt2_safetensors` geladen werden, wenn die Hyperparameter zur gewählten `MiniGptConfig` passen. **`load_minigpt_from_hf`** (Feature `hf-hub` auf `rusty_ai` bzw. `rusty_ai_llm`) lädt **RustyAi**-Checkpoints aus einem Repo, nicht beliebige GPT-2-Archivformate.
+- **Hugging Face:** GPT-2-`safetensors` können mit `load_minigpt_from_gpt2_safetensors` geladen werden, wenn die Hyperparameter zur gewählten `MiniGptConfig` passen (typisch `vocab_size` 50257). Mit **`gpt2-bpe`** lädt `Gpt2Tokenizer` dieselbe `tokenizer.json` wie die übliche HF-Pipeline (Implementierung: Rust-Crate **`tokenizers`**, ohne Python). **`load_minigpt_from_hf`** (Feature `hf-hub`) lädt **RustyAi**-Checkpoints aus einem Repo, nicht beliebige GPT-2-Archivformate.
 
 ---
 

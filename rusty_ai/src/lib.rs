@@ -15,18 +15,14 @@ pub use rusty_ai_backend_candle as candle;
 #[cfg(feature = "hf-hub")]
 pub use rusty_ai_llm::load_minigpt_from_hf;
 
+#[cfg(feature = "gpt2-bpe")]
+pub use rusty_ai_llm::{generate_gpt2_text, Gpt2PipelineError, Gpt2Tokenizer, Gpt2TokenizerError};
+
 pub use rusty_ai_autograd::{backward, no_grad, set_grad_enabled, Variable};
 pub use rusty_ai_core::{add, matmul, softmax, Tensor, TensorError};
 pub use rusty_ai_llm::{
-    generate,
-    load_minigpt_checkpoint,
-    load_minigpt_from_gpt2_safetensors,
-    save_minigpt_checkpoint,
-    ByteTokenizer,
-    KvCache,
-    MiniGpt,
-    MiniGptConfig,
-    TrainableMiniGpt,
+    generate, generate_from_ids, load_minigpt_checkpoint, load_minigpt_from_gpt2_safetensors,
+    save_minigpt_checkpoint, ByteTokenizer, KvCache, MiniGpt, MiniGptConfig, TrainableMiniGpt,
 };
 pub use rusty_ai_ml::{Adam, Sgd};
 pub use rusty_ai_nn::Linear;

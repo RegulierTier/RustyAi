@@ -72,11 +72,7 @@ mod tests {
 
     #[test]
     fn layer_norm_affine_identity_matches_layer_norm() {
-        let x = Tensor::from_vec(
-            vec![1.0f32, 2.0, 3.0, 4.0, 2.0, 1.0],
-            vec![2, 3],
-        )
-        .unwrap();
+        let x = Tensor::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 2.0, 1.0], vec![2, 3]).unwrap();
         let g = ones_scale(3).unwrap();
         let b = zeros_bias(3).unwrap();
         let y = layer_norm_affine(&x, &g, &b, 1e-5).unwrap();

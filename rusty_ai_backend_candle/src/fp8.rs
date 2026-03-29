@@ -25,7 +25,11 @@ impl From<candle_core::Error> for Fp8Error {
 }
 
 /// Cast `f32` buffer to FP8 E4M3 on `device`, then back to `f32` (round-trip for quantization tests).
-pub fn f32_tensor_to_f8e4m3(device: &Device, data: &[f32], shape: &[usize]) -> Result<Tensor, Fp8Error> {
+pub fn f32_tensor_to_f8e4m3(
+    device: &Device,
+    data: &[f32],
+    shape: &[usize],
+) -> Result<Tensor, Fp8Error> {
     let t = Tensor::from_vec(data.to_vec(), shape, device)?;
     Ok(t.to_dtype(DType::F8E4M3)?)
 }

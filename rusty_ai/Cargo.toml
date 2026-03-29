@@ -11,6 +11,8 @@ candle = ["dep:rusty_ai_backend_candle"]
 candle-cuda = ["candle", "rusty_ai_backend_candle/cuda"]
 # Hugging Face Hub: lädt RustyAi-Checkpoints (`config.json` + `model.safetensors`).
 hf-hub = ["rusty_ai_llm/hf-hub"]
+# GPT-2 BPE-Tokenizer (`tokenizer.json`) via `rusty_ai_llm` / `tokenizers`.
+gpt2-bpe = ["rusty_ai_llm/gpt2-bpe"]
 
 [dependencies]
 rusty_ai_core = { path = "../rusty_ai_core" }

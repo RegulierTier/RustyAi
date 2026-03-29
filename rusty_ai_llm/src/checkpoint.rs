@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use safetensors::tensor::{Dtype, SafeTensorError, SafeTensors, View};
 use safetensors::serialize;
+use safetensors::tensor::{Dtype, SafeTensorError, SafeTensors, View};
 use serde::{Deserialize, Serialize};
 
 use rusty_ai_core::{Tensor, TensorError};
@@ -101,8 +101,15 @@ impl std::fmt::Display for CheckpointError {
             CheckpointError::Json(e) => write!(f, "JSON: {e}"),
             CheckpointError::Tensor(e) => write!(f, "tensor: {e}"),
             CheckpointError::MissingTensor(n) => write!(f, "missing tensor: {n}"),
-            CheckpointError::ShapeMismatch { name, expected, got } => {
-                write!(f, "shape mismatch for {name}: expected {expected:?}, got {got:?}")
+            CheckpointError::ShapeMismatch {
+                name,
+                expected,
+                got,
+            } => {
+                write!(
+                    f,
+                    "shape mismatch for {name}: expected {expected:?}, got {got:?}"
+                )
             }
             CheckpointError::InvalidConfig(s) => write!(f, "invalid config: {s}"),
             CheckpointError::UnsupportedModelType(s) => write!(f, "unsupported model_type: {s}"),
@@ -370,7 +377,10 @@ pub fn minigpt_to_safetensors_bytes(model: &MiniGpt) -> Result<Vec<u8>, Checkpoi
 }
 
 /// Write `config.json` and `model.safetensors` into `dir`.
-pub fn save_minigpt_checkpoint(dir: impl AsRef<Path>, model: &MiniGpt) -> Result<(), CheckpointError> {
+pub fn save_minigpt_checkpoint(
+    dir: impl AsRef<Path>,
+    model: &MiniGpt,
+) -> Result<(), CheckpointError> {
     let dir = dir.as_ref();
     fs::create_dir_all(dir)?;
     let cfg_path = dir.join("config.json");
@@ -387,7 +397,8 @@ pub fn save_minigpt_checkpoint(dir: impl AsRef<Path>, model: &MiniGpt) -> Result
 /// Load [`MiniGpt`] from `dir/config.json` and `dir/model.safetensors`.
 pub fn load_minigpt_checkpoint(dir: impl AsRef<Path>) -> Result<MiniGpt, CheckpointError> {
     let dir = dir.as_ref();
-    let cfg: MiniGptConfigFile = serde_json::from_str(&fs::read_to_string(dir.join("config.json"))?)?;
+    let cfg: MiniGptConfigFile =
+        serde_json::from_str(&fs::read_to_string(dir.join("config.json"))?)?;
     let cfg = MiniGptConfig::try_from(cfg)?;
     let buf = fs::read(dir.join("model.safetensors"))?;
     let st = SafeTensors::deserialize(&buf)?;
@@ -411,12 +422,14 @@ mod hf_hub_download {
     /// nicht ein rohes GPT-2-Gewichtsarchiv. Für GPT-2-`safetensors` siehe [`crate::load_minigpt_from_gpt2_safetensors`].
     ///
     /// Dateien werden über den hf-hub-Cache geholt (siehe [`hf_hub::api::sync::Api`]).
-    pub fn load_minigpt_from_hf(repo_id: &str, dest_dir: impl AsRef<Path>) -> Result<MiniGpt, CheckpointError> {
+    pub fn load_minigpt_from_hf(
+        repo_id: &str,
+        dest_dir: impl AsRef<Path>,
+    ) -> Result<MiniGpt, CheckpointError> {
         let dest_dir = dest_dir.as_ref();
         fs::create_dir_all(dest_dir)?;
-        let api = hf_hub::api::sync::Api::new().map_err(|e| {
-            CheckpointError::InvalidConfig(format!("hf_hub Api::new: {e}"))
-        })?;
+        let api = hf_hub::api::sync::Api::new()
+            .map_err(|e| CheckpointError::InvalidConfig(format!("hf_hub Api::new: {e}")))?;
         for file in ["config.json", "model.safetensors"] {
             let path = api
                 .model(repo_id.to_string())
@@ -462,7 +475,10 @@ mod checkpoint_tests {
         let st = SafeTensors::deserialize(&bytes).unwrap();
         let mut map = HashMap::new();
         for (name, tv) in st.tensors() {
-            map.insert(name.clone(), tensor_from_safetensors_view(&name, tv).unwrap());
+            map.insert(
+                name.clone(),
+                tensor_from_safetensors_view(&name, tv).unwrap(),
+            );
         }
         let m2 = mini_gpt_from_state_dict(cfg.clone(), map).unwrap();
         let d1 = state_dict(&m1);

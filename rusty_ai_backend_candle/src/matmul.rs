@@ -35,10 +35,7 @@ pub fn matmul_f32(
     let (m, k) = (a_shape[0], a_shape[1]);
     let (k2, n) = (b_shape[0], b_shape[1]);
     if k != k2 {
-        return Err(candle_core::Error::Msg(format!(
-            "inner dims mismatch: {k} vs {k2}"
-        ))
-        .into());
+        return Err(candle_core::Error::Msg(format!("inner dims mismatch: {k} vs {k2}")).into());
     }
     let ta = Tensor::from_vec(a.to_vec(), &[m, k], device)?;
     let tb = Tensor::from_vec(b.to_vec(), &[k2, n], device)?;

@@ -98,18 +98,24 @@ pub fn sample_token(
     Ok(argmax(data))
 }
 
-/// Runs autoregressive generation: encodes `prompt`, then appends `max_tokens` sampled ids, decodes.
-pub fn generate(
+/// Autoregressive generation from **token ids** (any tokenizer with matching `vocab_size`).
+///
+/// Appends up to `max_tokens` new ids to the prompt sequence. If `max_tokens == 0`, returns the
+/// prompt ids unchanged without running the model.
+///
+/// **Contract:** Each id must be `< model.cfg.vocab_size`. An **empty** `prompt_ids` with
+/// `max_tokens > 0` yields `TensorError::EmptyTensor` (prefill requires at least one token).
+pub fn generate_from_ids(
     model: &MiniGpt,
-    prompt: &str,
+    prompt_ids: &[usize],
     max_tokens: usize,
     temperature: f32,
     top_p: f32,
     seed: &mut u32,
-) -> Result<String, TensorError> {
-    let mut ids = ByteTokenizer::encode(prompt);
+) -> Result<Vec<usize>, TensorError> {
+    let mut ids = prompt_ids.to_vec();
     if max_tokens == 0 {
-        return Ok(ByteTokenizer::decode(&ids));
+        return Ok(ids);
     }
     let mut cache = KvCache::new(model.cfg.n_layers);
     let mut logits = model.forward_prefill(&ids, &mut cache)?;
@@ -120,5 +126,67 @@ pub fn generate(
             logits = model.forward_decode_step(next, ids.len() - 1, &mut cache)?;
         }
     }
-    Ok(ByteTokenizer::decode(&ids))
+    Ok(ids)
+}
+
+/// Runs autoregressive generation: encodes `prompt` with [`ByteTokenizer`], samples, decodes.
+pub fn generate(
+    model: &MiniGpt,
+    prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+    top_p: f32,
+    seed: &mut u32,
+) -> Result<String, TensorError> {
+    let ids = ByteTokenizer::encode(prompt);
+    if max_tokens == 0 {
+        return Ok(ByteTokenizer::decode(&ids));
+    }
+    let out = generate_from_ids(model, &ids, max_tokens, temperature, top_p, seed)?;
+    Ok(ByteTokenizer::decode(&out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::MiniGptConfig;
+    use crate::tokenizer::ByteTokenizer;
+
+    #[test]
+    fn generate_from_ids_matches_byte_generate() {
+        let mut seed = 42u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 256,
+            d_model: 64,
+            n_heads: 4,
+            n_layers: 2,
+            ffn_dim: 128,
+            max_seq: 128,
+        };
+        let model = MiniGpt::random(cfg, &mut seed).unwrap();
+        let prompt = "hi";
+        let mut s1 = 7u32;
+        let s1_out = generate(&model, prompt, 5, 1.0, 1.0, &mut s1).unwrap();
+        let mut s2 = 7u32;
+        let ids = ByteTokenizer::encode(prompt);
+        let s2_out = generate_from_ids(&model, &ids, 5, 1.0, 1.0, &mut s2).unwrap();
+        assert_eq!(s1_out, ByteTokenizer::decode(&s2_out));
+    }
+
+    #[test]
+    fn generate_from_ids_max_tokens_zero_returns_prompt_only() {
+        let mut seed = 1u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 256,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 64,
+            max_seq: 64,
+        };
+        let model = MiniGpt::random(cfg, &mut seed).unwrap();
+        let ids = ByteTokenizer::encode("abc");
+        let out = generate_from_ids(&model, &ids, 0, 1.0, 1.0, &mut 0u32).unwrap();
+        assert_eq!(out, ids);
+    }
 }
