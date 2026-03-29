@@ -21,14 +21,14 @@ rusty_ai_core        Tensor, Broadcasting, matmul, softmax, …
        │                        │
        │                        ├── rusty_ai_ml    Sgd, Adam, Batches
        │                        │
-       │                        └── rusty_ai_llm   MiniGpt, generate
+       │                        └── rusty_ai_llm   MiniGpt, TrainableMiniGpt, generate
        │
        └── rusty_ai (Meta-Crate, Re-Exports)
 ```
 
 Datenfluss beim **Training**: Eingabe → `Tensor` / `Variable` → Schichten → Loss → `backward` → Optimizer-Schritt auf Parameter-Tensoren.
 
-Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke → Logits → `sample_token` / `generate` (kein Autograd nötig).
+Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke → Logits → `sample_token` / `generate` (kein Autograd nötig). **LLM-Training** nutzt `TrainableMiniGpt` mit demselben Forward wie `MiniGpt::forward`, Loss z. B. `Variable::cross_entropy_next_token`.
 
 ---
 
@@ -59,7 +59,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 **Verantwortung:** Dynamischer Rechengraph und Gradienten.
 
 - **`Variable`:** Hält `Tensor`-Daten in `RefCell` (Optimierer können Gewichte **in-place** setzen), optional `grad`, sowie die Operation (`Op`).
-- **Operationen mit Gradient:** `Add`, `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul`, `Relu`, `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel).
+- **Operationen mit Gradient (Auswahl):** `Add`, `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM, Ziele als Indizes), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel).
 - **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts.
 - **Kontext:** `grad_enabled()`, `set_grad_enabled`, `no_grad(|| { ... })` — im Inferenzpfad keine Graphen erzeugen.
 
@@ -107,7 +107,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 ### 2.6 `rusty_ai`
 
-Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `KvCache`, …).
+Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, …).
 
 ---
 
@@ -142,7 +142,13 @@ Schleife: nächstes Token wählen (z. B. sample_token)
 
 Dabei ist **`position`** die **absolute** Indexposition des gerade erzeugten Tokens in der laufenden Sequenz (0-basiert), also nach dem ersten neuen Token typisch `prompt_len`, dann `prompt_len + 1`, … — entspricht der Zeile in `embed_positions` / `embed_token_at`.
 
-Training des LLM ist im Framework **nicht** als fertiger Trainingsloop vorgefunden; Gewichte werden typischerweise für Demozwecke zufällig initialisiert.
+### 3.3 Mini-GPT trainieren (Next-Token, Autograd)
+
+1. `MiniGpt::random(...)` erzeugen, mit `TrainableMiniGpt::from_mini_gpt` übernehmen.
+2. `parameters()` liefert alle `Rc<Variable>` für den Optimierer.
+3. Pro Schritt: `zero_grad` auf allen Parametern, `forward(&token_ids)` → Logits `(1, seq, vocab)`, Loss `Variable::cross_entropy_next_token(&logits, &token_ids)` (Zielsequenz = Eingabe; pro Position `t` wird das nächste Token vorhergesagt), `backward`, `Adam::step` / `Sgd::step`.
+
+Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nicht benötigt (volle Sequenz pro Schritt).
 
 ---
 
@@ -178,6 +184,8 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **KV-Cache** | Zwischengespeicherte Key- und Value-Tensoren pro Schicht, um bei autoregressiver Generierung nicht die komplette bisherige Sequenz erneut zu verarbeiten. |
 | **Prefill** | Erster Inferenzschritt über den ganzen Prompt; füllt den KV-Cache und liefert Logits für die letzte Prompt-Position. |
 | **top-p (Nucleus)** | Sampling aus der kleinsten Menge höchster Wahrscheinlichkeiten, deren Summe ≥ p. |
+| **TrainableMiniGpt** | Decoder-only-Modell mit `Variable`-Gewichten; Forward wie `MiniGpt`, für Training mit `backward` + Optimierer. |
+| **Next-Token-Cross-Entropy** | Mittlerer negativer Log-Likelihood über Positionen `t`, die `token[t+1]` aus `logits[0,t,:]` vorhersagen (`Variable::cross_entropy_next_token`). |
 | **Variable** | Knoten mit Daten und optional Gradient im Autograd-Graphen. |
 
 ---

@@ -14,3 +14,7 @@ rusty_ai_llm = { path = "../rusty_ai_llm" }
 [[example]]
 name = "train_mlp"
 path = "examples/train_mlp.rs"
+
+[[example]]
+name = "train_mini_gpt"
+path = "examples/train_mini_gpt.rs"

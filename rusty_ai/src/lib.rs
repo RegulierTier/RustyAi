@@ -11,6 +11,8 @@ pub use rusty_ai_nn as nn;
 
 pub use rusty_ai_autograd::{backward, no_grad, set_grad_enabled, Variable};
 pub use rusty_ai_core::{add, matmul, softmax, Tensor, TensorError};
-pub use rusty_ai_llm::{generate, ByteTokenizer, KvCache, MiniGpt, MiniGptConfig};
+pub use rusty_ai_llm::{
+    generate, ByteTokenizer, KvCache, MiniGpt, MiniGptConfig, TrainableMiniGpt,
+};
 pub use rusty_ai_ml::{Adam, Sgd};
 pub use rusty_ai_nn::Linear;

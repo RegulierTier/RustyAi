@@ -11,16 +11,16 @@ Ein **Rust-Workspace** für maschinelles Lernen und kleine Sprachmodelle: CPU-Te
 | Bereich | Inhalt |
 | ------- | ------ |
 | **Tensor & Ops** | `f32`-Tensoren (row-major), Broadcasting, `matmul` (2D + Batch-3D), Aktivierungen, `softmax` / `log_softmax`, `mse`, … |
-| **Autograd** | `Variable`, dynamischer Graph, `backward`, `BiasAdd` für Zeilen-Bias, `no_grad` für Inferenz |
+| **Autograd** | `Variable`, dynamischer Graph, `backward`, u. a. `MatMul`, `Mul`, GELU, LayerNorm, Softmax, Embedding-Gather, Split/Merge-Heads, Cross-Entropy (Next-Token), `no_grad` für Inferenz |
 | **NN** | `Linear`, GELU, LayerNorm (ohne lernbare γ/β), Xavier-Initialisierung |
 | **ML** | `Sgd`, `Adam`, Batch-Iterator, einfache Spalten-Normalisierung |
-| **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt`, `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
+| **LLM** | Byte-Tokenizer, Causal-Attention, `MiniGpt` (Tensor), `TrainableMiniGpt` (Autograd), `generate` (Temperatur, top-p, **KV-Cache** nach Prefill) |
 
 ---
 
 ## LLM: Textgenerierung (Kurzüberblick)
 
-`MiniGpt` ist ein kleiner **Decoder-only**-Transformer (zufällige Gewichte, kein mitgelieferter Trainingsloop). Die Funktion **`generate`** arbeitet in zwei Phasen:
+`MiniGpt` ist ein kleiner **Decoder-only**-Transformer mit zufälliger Initialisierung. Zum **Trainieren** (Next-Token-Cross-Entropy, gleicher Forward wie `MiniGpt::forward`) dient **`TrainableMiniGpt`** plus `Variable::cross_entropy_next_token`; Beispiel: `cargo run -p rusty_ai --example train_mini_gpt`. Die Funktion **`generate`** arbeitet für Inferenz in zwei Phasen:
 
 1. **Prefill:** Der Prompt wird einmal vollständig durch das Modell geschoben; pro Schicht werden Keys und Values im **`KvCache`** gespeichert.
 2. **Decode:** Jedes neu generierte Token läuft nur mit Sequenzlänge 1 durch die Blöcke; K/V werden an den Cache angehängt — deutlich weniger Arbeit pro Schritt als bei wiederholter Vorwärtsrechnung über den ganzen Kontext.
@@ -58,6 +58,12 @@ cargo test --workspace
 cargo run -p rusty_ai --example train_mlp
 ```
 
+**Mini-GPT-Beispiel** (kurze Byte-Sequenz, Adam, Next-Token-Loss):
+
+```bash
+cargo run -p rusty_ai --example train_mini_gpt
+```
+
 ---
 
 ## Workspace-Struktur
@@ -79,7 +85,7 @@ Abhängigkeit der Bibliothek: u. a. [`matrixmultiply`](https://crates.io/crates/
 
 | Ressource | Inhalt |
 | --------- | ------ |
-| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, LLM mit KV-Cache), Grenzen, Glossar |
+| **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Architektur, Crate-Referenz, Abläufe (MLP, Mini-GPT-Training, LLM-Inferenz mit KV-Cache), Grenzen, Glossar |
 | **[`docs/README.md`](docs/README.md)** | Kurzüberblick über die Dokumentation im Ordner `docs/` |
 
 Rust-API-Dokumentation lokal erzeugen:
