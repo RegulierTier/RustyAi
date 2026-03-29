@@ -1,12 +1,14 @@
 //! Agent protocol for **Phase 0** (IDE roadmap): [`LlmBackend`], chat/completion types, and
 //! [`ToolInvocation`] JSON. See the crate `README.md` and `docs/ARCHITEKTUR_IDE_ROADMAP_B.md` in the workspace.
 //!
-//! Optional feature **`real-exec`**: [`RealExecutor`] runs [`ToolInvocation`] via `std::fs` / `std::process`
+//! Optional feature **`real-exec`**: `RealExecutor` runs [`ToolInvocation`] via `std::fs` / `std::process`
 //! after [`AllowlistPolicy`] checks. Optional **`http`**: OpenAI-kompatibles HTTP (`OpenAiCompatBackend`, u. a. SSE `complete_stream`; siehe README).
 //! Helpers: [`tool_invocations_try_each`], [`tool_parse_retry_instruction`], [`format_replace_preview`], [`complete_with_tool_parse_retries`],
 //! [`FallbackBackend`] (primär + Fallback), [`LocalTelemetry`] / [`TimedBackend`] (lokale Metriken).
+//! Phase 2: Diagnosen ([`UnifiedDiagnostic`], [`parse_cargo_json_stream`]), Prompts ([`PromptKind`], [`render_embedded`]), Tests ([`CargoTestInvocation`]).
 
 mod diff_preview;
+pub mod diagnostics;
 mod error;
 mod fallback_backend;
 mod llm_backend;
@@ -16,6 +18,8 @@ mod tool_parse;
 mod tools;
 
 mod orchestrator;
+mod prompts;
+mod cargo_test;
 
 #[cfg(feature = "real-exec")]
 mod executor;
@@ -31,6 +35,16 @@ pub use llm_backend::{
 pub use fallback_backend::FallbackBackend;
 pub use orchestrator::complete_with_tool_parse_retries;
 pub use diff_preview::{format_replace_preview, truncate_middle};
+pub use diagnostics::{
+    format_for_prompt, merge_diagnostics, parse_cargo_json_line, parse_cargo_json_stream,
+    parse_lsp_diagnostic_json, DiagnosticSeverity, DiagnosticSource, Position, Range,
+    UnifiedDiagnostic,
+};
+pub use prompts::{
+    load_embedded, load_from_dir, render_embedded, render_template, PromptKind, RenderedPrompt,
+    EMBEDDED_PROMPT_VERSION,
+};
+pub use cargo_test::{CargoTestArgvError, CargoTestInvocation};
 pub use telemetry::{LocalTelemetry, TelemetrySnapshot, TimedBackend};
 pub use policy::AllowlistPolicy;
 pub use tool_parse::{

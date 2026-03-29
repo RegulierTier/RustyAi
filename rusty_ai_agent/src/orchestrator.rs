@@ -21,7 +21,7 @@ use crate::{LlmError, ToolInvocation};
 /// Assistenten-String). Produktive Clients sollten das Nachrichtenformat eures Backends nutzen
 /// (z. B. OpenAI-Tool-Nachrichten).
 ///
-/// `telemetry`: optional [`LocalTelemetry::record_tool_parse_retry_turn`] bei jedem Parse-Retry.
+/// `telemetry`: optional [`LocalTelemetry`] — bei jedem Parse-Retry wird ein interner Zähler erhöht (siehe [`LocalTelemetry::snapshot`](crate::LocalTelemetry::snapshot)).
 pub fn complete_with_tool_parse_retries(
     backend: &impl LlmBackend,
     mut request: CompletionRequest,

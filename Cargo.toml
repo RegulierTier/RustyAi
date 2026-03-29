@@ -9,6 +9,7 @@ members = [
     "rusty_ai",
     "rusty_ai_backend_candle",
     "rusty_ai_agent",
+    "rusty_ai_workspace",
 ]
 
 [workspace.package]

@@ -123,14 +123,16 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 **Phase 1 (RustyAi `rusty_ai_agent`):** abgeschlossen. ~~HTTP-Backend~~, ~~**SEARCH/REPLACE**~~, ~~**SSE / Tool-Stream**~~, ~~**Retry-Text**~~, ~~**Replace-Vorschau**~~, ~~**Turn-Schleife**~~, ~~**Fallback-Backends**~~, ~~**lokale Telemetrie**~~.
 
-**Nächster Schritt:** **Phase 2** (siehe unten: Workspace-Index, LSP, …); produktseitig weiterhin **Diff-View** in der IDE (kein Crate).
+**Nächster Schritt:** **Phase 3** (Policies pro Umgebung, CI-/Batch-Modus, …); produktseitig weiterhin **Diff-View** in der IDE (kein Crate). Phase-2-Referenzimplementierung siehe unten (Checkboxen).
 
 ### Phase 2 — Kontext und Qualität
 
-- [ ] **Workspace-Index:** Chunking nach Datei/Symbol, einfache Suche; optional **Embeddings**.
-- [ ] Integration **LSP-Diagnosen** (wo vorhanden) zusätzlich zu `cargo check`.
-- [ ] **Testauswahl:** gezielt `cargo test -p …` oder Filter, um Feedback schnell zu halten.
-- [ ] Vorlagen für **System-Prompts** (Analyse vs. Migration vs. Fix) versionieren.
+- [x] **Workspace-Index:** Zeilen-Chunking, einfache Substring-Suche; optional **Embeddings** (HTTP, Feature `embeddings`) — Crate [`rusty_ai_workspace`](../rusty_ai_workspace/src/lib.rs), Beispiel `workspace_index_demo`.
+- [x] **LSP-/Compiler-Diagnosen:** einheitliches Format + Merge — [`parse_cargo_json_stream`](../rusty_ai_agent/src/diagnostics.rs), [`parse_lsp_diagnostic_json`](../rusty_ai_agent/src/diagnostics.rs), Schema [`schemas/lsp_diagnostics_export.json`](../rusty_ai_agent/schemas/lsp_diagnostics_export.json); kein eingebetteter Language-Server (IDE kann JSON einspeisen).
+- [x] **Testauswahl:** [`CargoTestInvocation`](../rusty_ai_agent/src/cargo_test.rs) für `cargo test -p … -- filter`; Beispiel [`cargo_test_demo`](../rusty_ai_agent/examples/cargo_test_demo.rs).
+- [x] Vorlagen für **System-Prompts** (Analyse / Migration / Fix) — [`prompts/v1/`](../rusty_ai_agent/prompts/v1/), API [`render_embedded`](../rusty_ai_agent/src/prompts.rs).
+
+**Hinweis:** Symbol-Chunking „nach AST“ und echte LSP-stdio-Anbindung sind **nicht** Teil dieser Referenzimplementierung (iterativ im Produkt).
 
 **Erfolgskriterium:** Größere Repos werden ohne „alles in den Prompt“ bedienbar; wiederholbare Qualität über Sessions.
 

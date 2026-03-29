@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rusty-ai.github.io/schemas/lsp_diagnostics_export.json",
+  "title": "LSP publishDiagnostics batch (export for rusty_ai_agent)",
+  "description": "Subset compatible with JSON-RPC publishDiagnostics payload; uri + diagnostics array.",
+  "type": "object",
+  "required": ["diagnostics"],
+  "properties": {
+    "uri": {
+      "type": "string",
+      "description": "file:// URI for the document (optional if path passed separately in API)"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["range", "message"],
+        "properties": {
+          "range": {
+            "type": "object",
+            "required": ["start", "end"],
+            "properties": {
+              "start": { "$ref": "#/$defs/position" },
+              "end": { "$ref": "#/$defs/position" }
+            }
+          },
+          "severity": {
+            "type": "integer",
+            "description": "LSP DiagnosticSeverity: 1=Error, 2=Warning, 3=Information, 4=Hint"
+          },
+          "message": { "type": "string" },
+          "code": {
+            "description": "String or { value: string }",
+            "oneOf": [{ "type": "string" }, { "type": "object" }]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": ["line", "character"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 0 },
+        "character": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

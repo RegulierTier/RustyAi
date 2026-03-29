@@ -5,7 +5,7 @@ use crate::LlmError;
 
 /// Ruft zuerst `primary` auf; nur wenn das fehlschlägt, `fallback` (gleiche [`CompletionRequest`]-Kopie).
 ///
-/// Typisches Muster: OpenAI-kompatibles Remote-Endpoint + lokales `http://127.0.0.1:11434/v1` ([`OpenAiCompatBackend`](crate::OpenAiCompatBackend) zweimal mit unterschiedlicher [`OpenAiChatConfig`](crate::OpenAiChatConfig)).
+/// Typisches Muster: OpenAI-kompatibles Remote-Endpoint + lokales `http://127.0.0.1:11434/v1` (`OpenAiCompatBackend` mit Feature **`http`**, je eigener `OpenAiChatConfig`).
 #[derive(Clone, Debug)]
 pub struct FallbackBackend<A, B> {
     pub primary: A,

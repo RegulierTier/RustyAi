@@ -21,6 +21,10 @@ Dieses Dokument ergänzt die Kurzregeln im [README](README.md) und ist für **Pr
 3. **Timeout und Ausgabelimits:** Lange `cargo`-Läufe begrenzen; stdout/stderr truncaten, um Speicher zu schützen.
 4. **Umgebungsvariablen:** Keine Secrets in der Child-Umgebung ohne Review.
 
+## `cargo test` (gezieltes Feedback)
+
+Für schnelle Schleifen ist `cargo test -p <crate> -- <filter>` üblich. Nutze [`CargoTestInvocation`](src/cargo_test.rs), um `argv` **ohne Shell** zusammenzusetzen und gefährliche Zeichen in Filtern zu vermeiden. Die Binary-Allowlist muss weiterhin **`cargo`** enthalten; das Arbeitsverzeichnis (`cwd`) sollte auf das Workspace-Root zeigen. Keine zusammengesetzten Shell-Befehle (`sh -c "cargo test …"`).
+
 ## Netzwerk
 
 Mit Feature **`http`** ([`OpenAiCompatBackend`](src/openai_compat.rs)): TLS über das System-`reqwest`-Backend; **API-Keys** nur über Umgebungsvariablen oder sicheren Konfigurationskanal — nie in Repos oder Logs. Für Ollama lokal oft **ohne** Bearer-Token (`api_key` leer).

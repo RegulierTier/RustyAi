@@ -2148,6 +2148,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty_ai_workspace"
+version = "1.4.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "walkdir",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

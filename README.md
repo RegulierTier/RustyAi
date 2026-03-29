@@ -114,7 +114,7 @@ Die **fachliche** Roadmap (IDE/Orchestrierung, Phasen 0–4) steht in **[`docs/A
 | Phase | Richtung |
 | ----- | -------- |
 | **0–1** | `LlmBackend`, Tool-Protokoll, HTTP/SSE, Retry, Telemetrie, Fallback — im Workspace weitgehend umgesetzt (`rusty_ai_agent`) |
-| **2+** | Workspace-Index / RAG, LSP, Prompt-Templates, CI-Modi — **außerhalb** des reinen Kern-Trainings |
+| **2+** | Workspace-Index (`rusty_ai_workspace`), Diagnosen/Prompts/Test-`argv` (`rusty_ai_agent`) — CI-Modi später |
 
 Im **ML-/LLM-Kern** bleiben bewusst **TODOs** für Dinge wie vollständiges GPU-Training, Streaming-Generate im `rusty_ai_llm`-Stil — siehe Kommentare in den Crates.
 
@@ -160,7 +160,8 @@ let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
 | Crate | Rolle |
 | ----- | ----- |
 | `rusty_ai` | Sammel-Crate: Re-Exports |
-| `rusty_ai_agent` | Agent-Protokoll, optional `http` / `real-exec` |
+| `rusty_ai_agent` | Agent-Protokoll, optional `http` / `real-exec`; Diagnosen, Prompt-Vorlagen, `CargoTestInvocation` |
+| `rusty_ai_workspace` | Datei-Index (Chunks, Suche), optional Embeddings (`embeddings`) |
 | `rusty_ai_core` | Tensoren, Formen, numerische Operationen |
 | `rusty_ai_autograd` | `Variable`, Rückwärtsrechnung |
 | `rusty_ai_nn` | Schichten & Aktivierungen |
@@ -189,6 +190,7 @@ Manuelle Inferenz mit **`forward_prefill`** / **`forward_decode_step`** und **`K
 | **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B: Architektur, Roadmap |
 | **[`rusty_ai_agent/README.md`](rusty_ai_agent/README.md)** | Agent: Features, Beispiele, API |
 | **[`rusty_ai_agent/SECURITY.md`](rusty_ai_agent/SECURITY.md)** | Sicherheit (Allowlist, `run_cmd`) |
+| **[`rusty_ai_workspace/README.md`](rusty_ai_workspace/README.md)** | Workspace-Index, Embeddings-Feature |
 | **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Zentrale Referenz: Crates, Abläufe, Glossar |
 | **[`docs/README.md`](docs/README.md)** | Index der `docs/`-Dateien |
 | **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht Scope-Erweiterung |

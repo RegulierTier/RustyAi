@@ -35,3 +35,6 @@ name = "dual_backend_demo"
 
 [[example]]
 name = "telemetry_demo"
+
+[[example]]
+name = "cargo_test_demo"

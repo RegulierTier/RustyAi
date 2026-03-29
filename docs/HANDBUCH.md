@@ -28,6 +28,7 @@ rusty_ai_core        Tensor, Broadcasting, matmul, softmax, …
        └── rusty_ai (Meta-Crate, Re-Exports)
 
 rusty_ai_agent       LlmBackend, Tool-Protokoll, Policy (Pfad B / IDE) — Abschnitt 2.8
+rusty_ai_workspace   Workspace-Index (Chunks, Suche, optional Embeddings) — Abschnitt 2.9
 ```
 
 Datenfluss beim **Training**: Eingabe → `Tensor` / `Variable` → Schichten → Loss → `backward` → Optimizer-Schritt auf Parameter-Tensoren.
@@ -150,6 +151,9 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | [`fallback_backend`](../rusty_ai_agent/src/fallback_backend.rs) | `FallbackBackend`: primärer `LlmBackend`, bei Fehler Fallback |
 | [`telemetry`](../rusty_ai_agent/src/telemetry.rs) | `LocalTelemetry`, `TimedBackend` (Latenz-/Aufrufzähler), `record_cargo_check` |
 | [`diff_preview`](../rusty_ai_agent/src/diff_preview.rs) | `format_replace_preview` für SEARCH/REPLACE-Review (textuell) |
+| [`diagnostics`](../rusty_ai_agent/src/diagnostics.rs) | `parse_cargo_json_stream`, `parse_lsp_diagnostic_json`, `merge_diagnostics`, `format_for_prompt` |
+| [`prompts`](../rusty_ai_agent/src/prompts.rs) | `PromptKind`, `render_embedded`, `load_from_dir` — Vorlagen unter [`prompts/v1/`](../rusty_ai_agent/prompts/v1/) |
+| [`cargo_test`](../rusty_ai_agent/src/cargo_test.rs) | `CargoTestInvocation` — sicheres `argv` für `cargo test -p … -- filter` |
 
 **Sicherheit und Policy:** Siehe **[`rusty_ai_agent/SECURITY.md`](../rusty_ai_agent/SECURITY.md)**. **Architektur / Roadmap (Pfad B):** **[`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md)**.
 
@@ -164,6 +168,15 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | `cargo run -p rusty_ai_agent --example telemetry_demo` | `TimedBackend` + `LocalTelemetry` |
 | `cargo run -p rusty_ai_agent --example openai_smoke --features http` | Eine Chat-Completion (Cloud; Ollama: `-- --ollama`) |
 | `cargo run -p rusty_ai_agent --example openai_stream --features http` | SSE-Streaming |
+| `cargo run -p rusty_ai_agent --example cargo_test_demo` | Beispiel-`argv` für gezielte Tests |
+
+---
+
+### 2.9 `rusty_ai_workspace`
+
+**Verantwortung:** **Workspace-Index** für Retrieval vor LLM-Aufrufen (Pfad B, Phase 2): [`WorkspaceIndex::build`](../rusty_ai_workspace/src/lib.rs) lädt Textdateien unter einem Root (überspringt u. a. `target/`, `.git/`); Zeilen-Chunks mit Überlappung; [`search_substring`](../rusty_ai_workspace/src/lib.rs). Optional **Feature `embeddings`**: [`embeddings::HttpEmbeddingClient`](../rusty_ai_workspace/src/lib.rs), [`EmbeddingIndex::from_workspace`](../rusty_ai_workspace/src/lib.rs) und Cosinus-Top-k — **Netzwerk nur mit aktiviertem Feature** und konfiguriertem API-Endpunkt.
+
+**Beispiel:** `cargo run -p rusty_ai_workspace --example workspace_index_demo`
 
 ---
 
@@ -227,6 +240,7 @@ Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nic
 4. **Fehlerhafte Tool-JSON:** [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs) mit `max_complete_calls` und optional `Some(&telemetry)` für Zähler.
 5. **Robustheit:** [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs) (z. B. API ausgefallen → lokal); [`TimedBackend`](../rusty_ai_agent/src/telemetry.rs) + manuell `record_cargo_check` nach `run_cmd`.
 6. **Echte Ausführung:** nur mit Feature **`real-exec`** und [`RealExecutor::new`](../rusty_ai_agent/src/executor.rs) (Workspace-Root kanonisieren).
+7. **Kontext (Phase 2):** [`WorkspaceIndex`](../rusty_ai_workspace/src/lib.rs) für relevante Chunks; Compiler- und LSP-Ausgaben mit [`merge_diagnostics`](../rusty_ai_agent/src/diagnostics.rs) und [`format_for_prompt`](../rusty_ai_agent/src/diagnostics.rs) in die nächste Nachricht; System-Prompt aus [`render_embedded`](../rusty_ai_agent/src/prompts.rs); schnelle Tests mit [`CargoTestInvocation`](../rusty_ai_agent/src/cargo_test.rs) + `run_cmd`.
 
 Ausführliche Beispielbefehle: Abschnitt **2.8** und [`rusty_ai_agent/README.md`](../rusty_ai_agent/README.md).
 
@@ -272,12 +286,15 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **ToolInvocation** | Konkretes, ausführbares Tool (`read_file`, `write_file`, …) nach Parsing aus `ModelToolCall`. |
 | **AllowlistPolicy** | Erlaubte Pfad-Präfixe und Binaries für `run_cmd` vor Ausführung durch einen Executor. |
 | **Pfad B** | IDE-nähe: Orchestrierung, externe LLMs, Tool-Loops, Compiler-Feedback — siehe `ARCHITEKTUR_IDE_ROADMAP_B.md`. |
+| **WorkspaceIndex** | Zeilen-Chunks aus Dateien unter einem konfigurierbaren Root; Substring-Suche; optional HTTP-Embeddings (`rusty_ai_workspace`, Feature `embeddings`). |
+| **UnifiedDiagnostic** | Gemeinsames Format für rustc-/Cargo-JSON und LSP-Subset; `merge_diagnostics`, `format_for_prompt` (`rusty_ai_agent::diagnostics`). |
+| **CargoTestInvocation** | Validiertes `argv` für `cargo test -p … -- filter` ohne Shell (`rusty_ai_agent`). |
 
 ---
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2-Bausteine** (Index, Diagnosen, Prompts, Test-`argv`): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
 
 ---
 

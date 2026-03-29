@@ -5,9 +5,12 @@ Hier liegen **menschenlesbare** Beschreibungen des Projekts. Die Rust-API bleibt
 | Datei | Zweck |
 | ----- | ----- |
 | **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** | **Pfad B (IDE-nah):** Zielarchitektur (Orchestrierung, LLM-Backends, Tools, Feedback-Schleifen), Einordnung von RustyAi, **phasenweise Roadmap** (MVP → Kontext → Betrieb). |
-| **[../rusty_ai_agent/README.md](../rusty_ai_agent/README.md)** | Crate **`rusty_ai_agent`:** Features (`http`, `real-exec`), Kern-API, **Beispiel-Tabelle** (`agent_demo`, `openai_stream`, …). |
-| **[../rusty_ai_agent/SECURITY.md](../rusty_ai_agent/SECURITY.md)** | Sicherheit: Allowlist, `run_cmd`, Checkliste (Pfad B). |
-| **[HANDBUCH.md](HANDBUCH.md)** | Zentrale Referenz: Architektur, alle Workspace-Crates (**Abschnitte 2.8 `rusty_ai_agent`**, **3.4 Agent-Orchestrierung**), typische Abläufe (MLP, Mini-GPT, LLM KV-Cache, Agent), Checkpoints/GPT-2/Candle, Grenzen, Glossar. |
+| **[../rusty_ai_agent/README.md](../rusty_ai_agent/README.md)** | Crate **`rusty_ai_agent`:** Features (`http`, `real-exec`), Kern-API, Diagnosen/Prompts/`CargoTestInvocation` (Phase 2), **Beispiel-Tabelle**. |
+| **[../rusty_ai_agent/SECURITY.md](../rusty_ai_agent/SECURITY.md)** | Sicherheit: Allowlist, `run_cmd`, `cargo test`, Checkliste (Pfad B). |
+| **[../rusty_ai_workspace/README.md](../rusty_ai_workspace/README.md)** | Crate **`rusty_ai_workspace`:** Zeilen-Chunk-Index, Suche, optionales Feature **`embeddings`**. |
+| **[../rusty_ai_agent/prompts/v1/](../rusty_ai_agent/prompts/v1/)** | Versionierte System-Prompt-Vorlagen (Analyse / Migration / Fix) mit `manifest.json`. |
+| **[../rusty_ai_agent/schemas/](../rusty_ai_agent/schemas/)** | JSON-Schemas: Tool-Invocations, LSP-Diagnose-Export für IDE-Plugins. |
+| **[HANDBUCH.md](HANDBUCH.md)** | Zentrale Referenz: Architektur, alle Workspace-Crates (**2.8 `rusty_ai_agent`**, **2.9 `rusty_ai_workspace`**, **3.4 Agent-Orchestrierung**), typische Abläufe (MLP, Mini-GPT, LLM KV-Cache, Agent), Checkpoints/GPT-2/Candle, Grenzen, Glossar. |
 | **[BERICHT_PRÜFUNG.md](BERICHT_PRÜFUNG.md)** | Prüfbericht zur Scope-Erweiterung (Korrekturen, Tests, Grenzen). |
 | **[../rusty_ai_backend_candle/README.md](../rusty_ai_backend_candle/README.md)** | Kurzbeschreibung des optionalen Candle-Crates (CPU/CUDA, FP8, All-Reduce-Referenz). |
 

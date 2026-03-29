@@ -7,6 +7,8 @@
 | **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](../docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B: Zielarchitektur, Phasen-Roadmap |
 | **[`docs/HANDBUCH.md`](../docs/HANDBUCH.md)** | Abschnitt **2.8** (`rusty_ai_agent`), **3.4** (Ablauf Orchestrierung) |
 | **[`SECURITY.md`](SECURITY.md)** | Bedrohungsmodell, Allowlist, Checkliste |
+| **[`prompts/v1/`](prompts/v1/)** | Versionierte System-Prompts (Analyse / Migration / Fix), `manifest.json` |
+| **[`schemas/`](schemas/)** | JSON-Schema: [`tool_invocation.json`](schemas/tool_invocation.json), [`lsp_diagnostics_export.json`](schemas/lsp_diagnostics_export.json) |
 
 Ohne Features führt dieses Crate **kein** HTTP und kein Dateisystem aus — nur Typen, Trait und Hilfsfunktionen. Ausführung und Policies liegen im Orchestrierungs- oder Produkt-Code (oder hinter den optionalen Features unten).
 
@@ -19,6 +21,8 @@ Ohne Features führt dieses Crate **kein** HTTP und kein Dateisystem aus — nur
 | *(default)* | Nur Typen, Parsing, Policy, Orchestrierung-Hilfen |
 | **`real-exec`** | [`RealExecutor`](src/executor.rs): echtes `std::fs` / `std::process` nach Policy-Check |
 | **`http`** | [`OpenAiCompatBackend`](src/openai_compat.rs): `POST …/chat/completions` (blocking `reqwest`) |
+
+Zusätzliches Crate **[`rusty_ai_workspace`](../rusty_ai_workspace/README.md)** (Workspace-Member): Index + Suche; Feature **`embeddings`** dort für HTTP-Embeddings.
 
 ```bash
 cargo test -p rusty_ai_agent
@@ -39,6 +43,9 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 | Fallback | [`FallbackBackend`](src/fallback_backend.rs) |
 | Telemetrie (lokal) | [`LocalTelemetry`](src/telemetry.rs), [`TimedBackend`](src/telemetry.rs) |
 | Vorschau | [`format_replace_preview`](src/diff_preview.rs) |
+| Diagnosen (Phase 2) | [`parse_cargo_json_stream`](src/diagnostics.rs), [`parse_lsp_diagnostic_json`](src/diagnostics.rs), [`merge_diagnostics`](src/diagnostics.rs), [`format_for_prompt`](src/diagnostics.rs) |
+| Prompts (Phase 2) | [`render_embedded`](src/prompts.rs), [`PromptKind`](src/prompts.rs) — Vorlagen [`prompts/v1/`](prompts/v1/) |
+| Tests (Phase 2) | [`CargoTestInvocation`](src/cargo_test.rs) |
 | HTTP (Feature) | [`OpenAiCompatBackend`](src/openai_compat.rs), [`OpenAiChatConfig`](src/openai_compat.rs), `complete_stream` / `complete_stream_text` |
 
 ---
@@ -54,8 +61,11 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 | **telemetry_demo** | `cargo run -p rusty_ai_agent --example telemetry_demo` | — |
 | **openai_smoke** | `cargo run -p rusty_ai_agent --example openai_smoke --features http` | `http` |
 | **openai_stream** | `cargo run -p rusty_ai_agent --example openai_stream --features http` | `http` |
+| **cargo_test_demo** | `cargo run -p rusty_ai_agent --example cargo_test_demo` | — |
 
 **HTTP:** Cloud: `OPENAI_API_KEY` setzen; optional `OPENAI_BASE_URL`. **Ollama:** `cargo run … openai_smoke --features http -- --ollama` (ohne Key). Siehe [`examples/openai_smoke.rs`](examples/openai_smoke.rs).
+
+**Workspace-Index:** `cargo run -p rusty_ai_workspace --example workspace_index_demo` (siehe [`rusty_ai_workspace`](../rusty_ai_workspace/README.md)).
 
 ---
 

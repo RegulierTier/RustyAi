@@ -1,0 +1,5 @@
+{
+  "version": "1",
+  "compat": "rusty_ai_agent>=1.4",
+  "templates": ["analyze.md", "migrate.md", "fix.md"]
+}
