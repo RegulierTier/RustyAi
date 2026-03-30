@@ -635,295 +635,276 @@ fn acc_grad(v: &Variable, g: &Tensor) -> Result<(), TensorError> {
     Ok(())
 }
 
+/// Reverse-mode AD: expliziter `Vec`-Stack statt rekursiver Aufrufe (tiefe Graphen, z. B. Mini-GPT).
 pub fn backward(loss: &Rc<Variable>) -> Result<(), TensorError> {
     let g = Tensor::scalar(1.0);
-    backward_grad(loss, &g)
-}
-
-fn backward_grad(v: &Rc<Variable>, grad: &Tensor) -> Result<(), TensorError> {
-    acc_grad(v, grad)?;
-
-    match &v.op {
-        Op::Leaf => Ok(()),
-        Op::Add(a, b) => {
-            let ga = sum_grad_to_shape(grad, a.data().shape())?;
-            let gb = sum_grad_to_shape(grad, b.data().shape())?;
-            backward_grad(a, &ga)?;
-            backward_grad(b, &gb)?;
-            Ok(())
-        }
-        Op::BiasAdd(x, b) => {
-            backward_grad(x, grad)?;
-            let gb = sum_axis_0(grad)?;
-            backward_grad(b, &gb)?;
-            Ok(())
-        }
-        Op::MatMul(a, b) => {
-            let ra = a.data().shape().len();
-            let rb = b.data().shape().len();
-            if ra == 2 && rb == 2 {
-                let ga = matmul(grad, &transpose_2d(&b.data())?)?;
-                let gb = matmul(&transpose_2d(&a.data())?, grad)?;
-                backward_grad(a, &ga)?;
-                backward_grad(b, &gb)?;
-            } else if ra == 3 && rb == 3 {
-                let bt = transpose_batched_last2(&b.data())?;
-                let ga = matmul(grad, &bt)?;
-                let at = transpose_batched_last2(&a.data())?;
-                let gb = matmul(&at, grad)?;
-                backward_grad(a, &ga)?;
-                backward_grad(b, &gb)?;
-            } else {
-                return Err(TensorError::Shape(
-                    rusty_ai_core::ShapeError::MatmulIncompatible {
-                        left: a.data().shape().to_vec(),
-                        right: b.data().shape().to_vec(),
-                    },
-                ));
+    let mut stack: Vec<(Rc<Variable>, Tensor)> = vec![(Rc::clone(loss), g)];
+    while let Some((v, grad)) = stack.pop() {
+        acc_grad(&v, &grad)?;
+        match &v.op {
+            Op::Leaf => {}
+            Op::Add(a, b) => {
+                let ga = sum_grad_to_shape(&grad, a.data().shape())?;
+                let gb = sum_grad_to_shape(&grad, b.data().shape())?;
+                stack.push((Rc::clone(b), gb));
+                stack.push((Rc::clone(a), ga));
             }
-            Ok(())
-        }
-        Op::Mul(a, b) => {
-            let ga = mul(grad, &b.data())?;
-            let gb = mul(grad, &a.data())?;
-            let ga = sum_grad_to_shape(&ga, a.data().shape())?;
-            let gb = sum_grad_to_shape(&gb, b.data().shape())?;
-            backward_grad(a, &ga)?;
-            backward_grad(b, &gb)?;
-            Ok(())
-        }
-        Op::Relu(x) => {
-            let mask = relu_mask(&x.data());
-            let gx = mul(grad, &mask)?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::Gelu(x) => {
-            let gx = gelu_backward(grad, &x.data())?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::LayerNorm(x, eps) => {
-            let gx = layer_norm_backward(grad, &x.data(), *eps)?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::SoftmaxLastDim(x) => {
-            let y = softmax_last_forward(&x.data())?;
-            let gx = softmax_last_dim_backward(grad, &y)?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::Reshape(a, old_shape) => {
-            let ga = grad.reshape(old_shape)?;
-            backward_grad(a, &ga)?;
-            Ok(())
-        }
-        Op::TransposeBatchedLast2(a) => {
-            let ga = transpose_batched_last2(grad)?;
-            backward_grad(a, &ga)?;
-            Ok(())
-        }
-        Op::CausalMask(pre) => {
-            let pd = pre.data();
-            let s = pd.shape();
-            if s.len() != 3 {
-                return Err(TensorError::Shape(
-                    rusty_ai_core::ShapeError::InvalidReshape {
-                        from: s.to_vec(),
-                        to: vec![],
-                    },
-                ));
+            Op::BiasAdd(x, b) => {
+                let gb = sum_axis_0(&grad)?;
+                stack.push((Rc::clone(b), gb));
+                stack.push((Rc::clone(x), grad));
             }
-            let bh = s[0];
-            let seq = s[2];
-            let mut g = grad.data().to_vec();
-            let stride = seq * seq;
-            for b in 0..bh {
-                for i in 0..seq {
-                    for j in 0..seq {
-                        if j > i {
-                            g[b * stride + i * seq + j] = 0.0;
+            Op::MatMul(a, b) => {
+                let ra = a.data().shape().len();
+                let rb = b.data().shape().len();
+                if ra == 2 && rb == 2 {
+                    let ga = matmul(&grad, &transpose_2d(&b.data())?)?;
+                    let gb = matmul(&transpose_2d(&a.data())?, &grad)?;
+                    stack.push((Rc::clone(b), gb));
+                    stack.push((Rc::clone(a), ga));
+                } else if ra == 3 && rb == 3 {
+                    let bt = transpose_batched_last2(&b.data())?;
+                    let ga = matmul(&grad, &bt)?;
+                    let at = transpose_batched_last2(&a.data())?;
+                    let gb = matmul(&at, &grad)?;
+                    stack.push((Rc::clone(b), gb));
+                    stack.push((Rc::clone(a), ga));
+                } else {
+                    return Err(TensorError::Shape(
+                        rusty_ai_core::ShapeError::MatmulIncompatible {
+                            left: a.data().shape().to_vec(),
+                            right: b.data().shape().to_vec(),
+                        },
+                    ));
+                }
+            }
+            Op::Mul(a, b) => {
+                let ga = mul(&grad, &b.data())?;
+                let gb = mul(&grad, &a.data())?;
+                let ga = sum_grad_to_shape(&ga, a.data().shape())?;
+                let gb = sum_grad_to_shape(&gb, b.data().shape())?;
+                stack.push((Rc::clone(b), gb));
+                stack.push((Rc::clone(a), ga));
+            }
+            Op::Relu(x) => {
+                let mask = relu_mask(&x.data());
+                let gx = mul(&grad, &mask)?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::Gelu(x) => {
+                let gx = gelu_backward(&grad, &x.data())?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::LayerNorm(x, eps) => {
+                let gx = layer_norm_backward(&grad, &x.data(), *eps)?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::SoftmaxLastDim(x) => {
+                let y = softmax_last_forward(&x.data())?;
+                let gx = softmax_last_dim_backward(&grad, &y)?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::Reshape(a, old_shape) => {
+                let ga = grad.reshape(old_shape)?;
+                stack.push((Rc::clone(a), ga));
+            }
+            Op::TransposeBatchedLast2(a) => {
+                let ga = transpose_batched_last2(&grad)?;
+                stack.push((Rc::clone(a), ga));
+            }
+            Op::CausalMask(pre) => {
+                let pd = pre.data();
+                let s = pd.shape();
+                if s.len() != 3 {
+                    return Err(TensorError::Shape(
+                        rusty_ai_core::ShapeError::InvalidReshape {
+                            from: s.to_vec(),
+                            to: vec![],
+                        },
+                    ));
+                }
+                let bh = s[0];
+                let seq = s[2];
+                let mut g = grad.data().to_vec();
+                let stride = seq * seq;
+                for b in 0..bh {
+                    for i in 0..seq {
+                        for j in 0..seq {
+                            if j > i {
+                                g[b * stride + i * seq + j] = 0.0;
+                            }
                         }
                     }
                 }
+                let gt = Tensor::from_vec(g, s.to_vec())?;
+                stack.push((Rc::clone(pre), gt));
             }
-            let gt = Tensor::from_vec(g, s.to_vec())?;
-            backward_grad(pre, &gt)?;
-            Ok(())
-        }
-        Op::FimMask(pre, prefix_len, middle_len) => {
-            let pd = pre.data();
-            let s = pd.shape();
-            if s.len() != 3 {
-                return Err(TensorError::Shape(
-                    rusty_ai_core::ShapeError::InvalidReshape {
-                        from: s.to_vec(),
-                        to: vec![],
-                    },
-                ));
-            }
-            let bh = s[0];
-            let seq = s[2];
-            let mut g = grad.data().to_vec();
-            let stride = seq * seq;
-            for b in 0..bh {
-                for i in 0..seq {
-                    for j in 0..seq {
-                        if !fim_allowed_mask(i, j, *prefix_len, *middle_len, seq) {
-                            g[b * stride + i * seq + j] = 0.0;
+            Op::FimMask(pre, prefix_len, middle_len) => {
+                let pd = pre.data();
+                let s = pd.shape();
+                if s.len() != 3 {
+                    return Err(TensorError::Shape(
+                        rusty_ai_core::ShapeError::InvalidReshape {
+                            from: s.to_vec(),
+                            to: vec![],
+                        },
+                    ));
+                }
+                let bh = s[0];
+                let seq = s[2];
+                let mut g = grad.data().to_vec();
+                let stride = seq * seq;
+                for b in 0..bh {
+                    for i in 0..seq {
+                        for j in 0..seq {
+                            if !fim_allowed_mask(i, j, *prefix_len, *middle_len, seq) {
+                                g[b * stride + i * seq + j] = 0.0;
+                            }
                         }
                     }
                 }
+                let gt = Tensor::from_vec(g, s.to_vec())?;
+                stack.push((Rc::clone(pre), gt));
             }
-            let gt = Tensor::from_vec(g, s.to_vec())?;
-            backward_grad(pre, &gt)?;
-            Ok(())
-        }
-        Op::SlidingCausalMask(pre, window) => {
-            let pd = pre.data();
-            let s = pd.shape();
-            if s.len() != 3 {
-                return Err(TensorError::Shape(
-                    rusty_ai_core::ShapeError::InvalidReshape {
-                        from: s.to_vec(),
-                        to: vec![],
-                    },
-                ));
-            }
-            let bh = s[0];
-            let seq = s[2];
-            let mut g = grad.data().to_vec();
-            let stride = seq * seq;
-            for b in 0..bh {
-                for i in 0..seq {
-                    for j in 0..seq {
-                        if !sliding_causal_allowed(i, j, *window) {
-                            g[b * stride + i * seq + j] = 0.0;
+            Op::SlidingCausalMask(pre, window) => {
+                let pd = pre.data();
+                let s = pd.shape();
+                if s.len() != 3 {
+                    return Err(TensorError::Shape(
+                        rusty_ai_core::ShapeError::InvalidReshape {
+                            from: s.to_vec(),
+                            to: vec![],
+                        },
+                    ));
+                }
+                let bh = s[0];
+                let seq = s[2];
+                let mut g = grad.data().to_vec();
+                let stride = seq * seq;
+                for b in 0..bh {
+                    for i in 0..seq {
+                        for j in 0..seq {
+                            if !sliding_causal_allowed(i, j, *window) {
+                                g[b * stride + i * seq + j] = 0.0;
+                            }
                         }
                     }
                 }
+                let gt = Tensor::from_vec(g, s.to_vec())?;
+                stack.push((Rc::clone(pre), gt));
             }
-            let gt = Tensor::from_vec(g, s.to_vec())?;
-            backward_grad(pre, &gt)?;
-            Ok(())
-        }
-        Op::EmbeddingGather(table, indices) => {
-            let td = table.data();
-            let shape = td.shape();
-            let v = shape[0];
-            let d = shape[1];
-            let gd = grad.data();
-            let mut acc = vec![0.0f32; v * d];
-            for (t, &id) in indices.iter().enumerate() {
-                let row = id.min(v - 1);
-                for j in 0..d {
-                    acc[row * d + j] += gd[t * d + j];
-                }
-            }
-            let gt = Tensor::from_vec(acc, shape.to_vec())?;
-            backward_grad(table, &gt)?;
-            Ok(())
-        }
-        Op::SplitHeads(x, batch, heads, _d_head) => {
-            let gx = merge_heads_tensor(grad, *batch, *heads)?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::MergeHeads(x, _batch, heads, d_head) => {
-            let gx = split_heads_tensor(grad, *heads, *d_head)?;
-            backward_grad(x, &gx)?;
-            Ok(())
-        }
-        Op::CrossEntropyNextToken(logits, targets) => {
-            let ld = logits.data();
-            let s = ld.shape();
-            let seq = s[1];
-            let vocab = s[2];
-            let n_pred = (seq - 1) as f32;
-            let ldata = ld.data();
-            let g0 = grad.data().first().copied().unwrap_or(1.0);
-            let mut g = vec![0.0f32; seq * vocab];
-            for t in 0..seq - 1 {
-                let y = targets[t + 1].min(vocab - 1);
-                let base = t * vocab;
-                let row = &ldata[base..base + vocab];
-                let mut max = f32::NEG_INFINITY;
-                for &v in row.iter() {
-                    if v > max {
-                        max = v;
+            Op::EmbeddingGather(table, indices) => {
+                let td = table.data();
+                let shape = td.shape();
+                let v = shape[0];
+                let d = shape[1];
+                let gd = grad.data();
+                let mut acc = vec![0.0f32; v * d];
+                for (t, &id) in indices.iter().enumerate() {
+                    let row = id.min(v - 1);
+                    for j in 0..d {
+                        acc[row * d + j] += gd[t * d + j];
                     }
                 }
-                let mut sum_exp = 0.0f32;
-                let mut p = vec![0.0f32; vocab];
-                for (i, &v) in row.iter().enumerate() {
-                    let e = (v - max).exp();
-                    p[i] = e;
-                    sum_exp += e;
-                }
-                let inv = 1.0 / sum_exp.max(1e-12);
-                for pi in p.iter_mut() {
-                    *pi *= inv;
-                }
-                let scale = g0 / n_pred;
-                for (i, &pi) in p.iter().enumerate() {
-                    let delta = if i == y { 1.0 } else { 0.0 };
-                    g[base + i] += scale * (pi - delta);
-                }
+                let gt = Tensor::from_vec(acc, shape.to_vec())?;
+                stack.push((Rc::clone(table), gt));
             }
-            let gt = Tensor::from_vec(g, s.to_vec())?;
-            backward_grad(logits, &gt)?;
-            Ok(())
-        }
-        Op::CrossEntropyNextTokenSubset(logits, targets, positions) => {
-            let ld = logits.data();
-            let s = ld.shape();
-            let seq = s[1];
-            let vocab = s[2];
-            let n_active = positions.len() as f32;
-            let ldata = ld.data();
-            let g0 = grad.data().first().copied().unwrap_or(1.0);
-            let mut g = vec![0.0f32; seq * vocab];
-            for &t in positions {
-                let y = targets[t + 1].min(vocab - 1);
-                let base = t * vocab;
-                let row = &ldata[base..base + vocab];
-                let mut max = f32::NEG_INFINITY;
-                for &v in row.iter() {
-                    if v > max {
-                        max = v;
+            Op::SplitHeads(x, batch, heads, _d_head) => {
+                let gx = merge_heads_tensor(&grad, *batch, *heads)?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::MergeHeads(x, _batch, heads, d_head) => {
+                let gx = split_heads_tensor(&grad, *heads, *d_head)?;
+                stack.push((Rc::clone(x), gx));
+            }
+            Op::CrossEntropyNextToken(logits, targets) => {
+                let ld = logits.data();
+                let s = ld.shape();
+                let seq = s[1];
+                let vocab = s[2];
+                let n_pred = (seq - 1) as f32;
+                let ldata = ld.data();
+                let g0 = grad.data().first().copied().unwrap_or(1.0);
+                let mut g = vec![0.0f32; seq * vocab];
+                for t in 0..seq - 1 {
+                    let y = targets[t + 1].min(vocab - 1);
+                    let base = t * vocab;
+                    let row = &ldata[base..base + vocab];
+                    let mut max = f32::NEG_INFINITY;
+                    for &v in row.iter() {
+                        if v > max {
+                            max = v;
+                        }
+                    }
+                    let mut sum_exp = 0.0f32;
+                    let mut p = vec![0.0f32; vocab];
+                    for (i, &v) in row.iter().enumerate() {
+                        let e = (v - max).exp();
+                        p[i] = e;
+                        sum_exp += e;
+                    }
+                    let inv = 1.0 / sum_exp.max(1e-12);
+                    for pi in p.iter_mut() {
+                        *pi *= inv;
+                    }
+                    let scale = g0 / n_pred;
+                    for (i, &pi) in p.iter().enumerate() {
+                        let delta = if i == y { 1.0 } else { 0.0 };
+                        g[base + i] += scale * (pi - delta);
                     }
                 }
-                let mut sum_exp = 0.0f32;
-                let mut p = vec![0.0f32; vocab];
-                for (i, &v) in row.iter().enumerate() {
-                    let e = (v - max).exp();
-                    p[i] = e;
-                    sum_exp += e;
-                }
-                let inv = 1.0 / sum_exp.max(1e-12);
-                for pi in p.iter_mut() {
-                    *pi *= inv;
-                }
-                let scale = g0 / n_active;
-                for (i, &pi) in p.iter().enumerate() {
-                    let delta = if i == y { 1.0 } else { 0.0 };
-                    g[base + i] += scale * (pi - delta);
-                }
+                let gt = Tensor::from_vec(g, s.to_vec())?;
+                stack.push((Rc::clone(logits), gt));
             }
-            let gt = Tensor::from_vec(g, s.to_vec())?;
-            backward_grad(logits, &gt)?;
-            Ok(())
-        }
-        Op::Mse(pred, target) => {
-            let n = pred.data().numel().max(1) as f32;
-            let diff = sub(&pred.data(), target)?;
-            let g0 = grad.data().first().copied().unwrap_or(1.0);
-            let scale = mul(&diff, &Tensor::scalar(2.0 / n * g0))?;
-            backward_grad(pred, &scale)?;
-            Ok(())
+            Op::CrossEntropyNextTokenSubset(logits, targets, positions) => {
+                let ld = logits.data();
+                let s = ld.shape();
+                let seq = s[1];
+                let vocab = s[2];
+                let n_active = positions.len() as f32;
+                let ldata = ld.data();
+                let g0 = grad.data().first().copied().unwrap_or(1.0);
+                let mut g = vec![0.0f32; seq * vocab];
+                for &t in positions {
+                    let y = targets[t + 1].min(vocab - 1);
+                    let base = t * vocab;
+                    let row = &ldata[base..base + vocab];
+                    let mut max = f32::NEG_INFINITY;
+                    for &v in row.iter() {
+                        if v > max {
+                            max = v;
+                        }
+                    }
+                    let mut sum_exp = 0.0f32;
+                    let mut p = vec![0.0f32; vocab];
+                    for (i, &v) in row.iter().enumerate() {
+                        let e = (v - max).exp();
+                        p[i] = e;
+                        sum_exp += e;
+                    }
+                    let inv = 1.0 / sum_exp.max(1e-12);
+                    for pi in p.iter_mut() {
+                        *pi *= inv;
+                    }
+                    let scale = g0 / n_active;
+                    for (i, &pi) in p.iter().enumerate() {
+                        let delta = if i == y { 1.0 } else { 0.0 };
+                        g[base + i] += scale * (pi - delta);
+                    }
+                }
+                let gt = Tensor::from_vec(g, s.to_vec())?;
+                stack.push((Rc::clone(logits), gt));
+            }
+            Op::Mse(pred, target) => {
+                let n = pred.data().numel().max(1) as f32;
+                let diff = sub(&pred.data(), target)?;
+                let g0 = grad.data().first().copied().unwrap_or(1.0);
+                let scale = mul(&diff, &Tensor::scalar(2.0 / n * g0))?;
+                stack.push((Rc::clone(pred), scale));
+            }
         }
     }
+    Ok(())
 }
 
 fn relu_mask(x: &Tensor) -> Tensor {

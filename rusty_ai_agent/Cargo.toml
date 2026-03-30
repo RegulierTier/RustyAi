@@ -12,9 +12,12 @@ default = []
 real-exec = []
 # OpenAI-compatible Chat Completions over HTTP (`OpenAiCompatBackend`).
 http = ["dep:reqwest"]
+# Local MiniGptTinyBackend: sync completion via rusty_ai_llm (MiniGpt, byte tokenizer).
+minigpt = ["dep:rusty_ai_llm"]
 
 [dependencies]
 reqwest = { version = "0.12", optional = true, default-features = true, features = ["blocking", "json"] }
+rusty_ai_llm = { path = "../rusty_ai_llm", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.17"
@@ -41,3 +44,7 @@ name = "cargo_test_demo"
 
 [[example]]
 name = "batch_report_demo"
+
+[[example]]
+name = "tiny_llm_fallback_demo"
+required-features = ["minigpt"]

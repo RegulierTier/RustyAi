@@ -1,5 +1,8 @@
 //! Trainiert ein [`MiniGptConfig::micro_local`]‑Modell auf einem kleinen Byte‑Korpus und schreibt
 //! `assets/mini_local/config.json` + `model.safetensors` (Maintainer: nach Änderungen erneut ausführen und committen).
+//!
+//! [`backward`](rusty_ai_autograd::backward) nutzt einen expliziten Heap-Stack (kein rekursiver
+//! Aufruf-Stack), sodass das Training auf dem Main-Thread auch unter Windows stabil läuft.
 
 use std::path::PathBuf;
 use std::rc::Rc;

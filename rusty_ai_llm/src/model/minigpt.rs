@@ -6,10 +6,10 @@ use rusty_ai_core::{add, Tensor, TensorError};
 use rusty_ai_nn::{gelu, glorot_uniform, layer_norm_affine, ones_scale, zeros_bias};
 
 use crate::attention::{attention_single_query, attention_with_additive_mask, causal_attention_windowed};
-use crate::fim::fim_additive_mask;
-use crate::heads::{merge_heads, split_heads};
-use crate::kv_cache::{concat_along_seq, truncate_last_along_seq, KvCache, LayerKv};
-use crate::linear_tensor::linear_3d;
+use crate::cache::{concat_along_seq, truncate_last_along_seq, KvCache, LayerKv};
+use crate::inference::fim::fim_additive_mask;
+use super::heads::{merge_heads, split_heads};
+use super::linear::linear_3d;
 
 /// Last timestep of logits shaped `(1, seq, vocab)` (also works for `seq == 1`).
 fn logits_last_timestep_1batch(logits: &Tensor) -> Result<Tensor, TensorError> {
@@ -522,7 +522,7 @@ impl MiniGpt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv_cache::KvCache;
+    use crate::cache::KvCache;
 
     fn assert_vec_close(a: &[f32], b: &[f32], eps: f32) {
         assert_eq!(a.len(), b.len(), "length mismatch");
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn approx_weight_bytes_matches_state_dict() {
-        use crate::state_dict;
+        use crate::checkpoint::state_dict;
         let cfg = MiniGptConfig::micro_local();
         let mut seed = 1u32;
         let m = MiniGpt::random(cfg, &mut seed).unwrap();

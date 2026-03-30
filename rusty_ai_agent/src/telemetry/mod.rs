@@ -151,6 +151,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         b.complete(req).unwrap();

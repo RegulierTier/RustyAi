@@ -131,6 +131,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         assert!(b.complete(req.clone()).is_ok());
@@ -148,6 +149,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         assert!(b.complete(req).is_err());

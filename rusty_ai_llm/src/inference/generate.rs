@@ -6,10 +6,11 @@
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 
-use crate::fim::fim_next_logit_timestep;
-use crate::kv_cache::KvCache;
+use crate::cache::KvCache;
 use crate::model::MiniGpt;
 use crate::tokenizer::ByteTokenizer;
+
+use super::fim::fim_next_logit_timestep;
 
 /// Logits für eine Zeitscheibe `(1, vocab)` aus `logits` der Form `(1, seq, vocab)`.
 pub(crate) fn logits_timestep_1batch(logits: &Tensor, t: usize) -> Result<Tensor, TensorError> {

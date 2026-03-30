@@ -3,6 +3,7 @@
 //!
 //! Optional feature **`real-exec`**: `RealExecutor` runs [`ToolInvocation`] via `std::fs` / `std::process`
 //! after [`AllowlistPolicy`] checks. Optional **`http`**: OpenAI-kompatibles HTTP (`OpenAiCompatBackend`, u. a. SSE `complete_stream`; siehe README).
+//! Optional **`minigpt`**: lokales Byte-LM [`MiniGptTinyBackend`](minigpt_backend::MiniGptTinyBackend) (`rusty_ai_llm`).
 //! Helpers: [`tool_invocations_try_each`], [`tool_parse_retry_instruction`], [`format_replace_preview`], [`complete_with_tool_parse_retries`],
 //! [`FallbackBackend`] (primär + Fallback), [`LocalTelemetry`] / [`TimedBackend`] (lokale Metriken).
 //! Phase 2: Diagnosen ([`UnifiedDiagnostic`], [`parse_cargo_json_stream`]), Prompts ([`PromptKind`], [`render_embedded`]), Tests ([`CargoTestInvocation`]).
@@ -17,6 +18,9 @@ pub mod http;
 pub mod policy;
 pub mod telemetry;
 pub mod tools;
+
+#[cfg(feature = "minigpt")]
+pub mod minigpt_backend;
 
 pub use core::error::{LlmError, ToolInvocationParseError};
 pub use core::llm_backend;
@@ -56,3 +60,6 @@ pub use execution::{ExecutorError, RealExecutor};
 
 #[cfg(feature = "http")]
 pub use http::{OpenAiChatConfig, OpenAiCompatBackend};
+
+#[cfg(feature = "minigpt")]
+pub use minigpt_backend::MiniGptTinyBackend;

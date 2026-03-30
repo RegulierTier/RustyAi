@@ -23,12 +23,13 @@ Ohne Features führt dieses Crate **kein** HTTP und kein Dateisystem aus — nur
 | *(default)* | Nur Typen, Parsing, Policy, Orchestrierung-Hilfen |
 | **`real-exec`** | [`RealExecutor`](src/execution/executor.rs): echtes `std::fs` / `std::process` nach Policy-Check |
 | **`http`** | [`OpenAiCompatBackend`](src/http/openai_compat.rs): `POST …/chat/completions` (blocking `reqwest`) |
+| **`minigpt`** | [`MiniGptTinyBackend`](src/minigpt_backend.rs): [`LlmBackend`](src/core/llm_backend.rs) über [`rusty_ai_llm`](../rusty_ai_llm/README.md) ([`MiniGpt`](../rusty_ai_llm/src/model/minigpt.rs), Byte-Tokenizer). **Einschränkungen:** keine Tool-Calls — `CompletionRequest.tools` muss leer sein. **`top_p` / `temperature`:** optional in [`CompletionRequest`](src/core/llm_backend.rs), sonst Backend-Default. **`stop_sequences`:** Substring-Abbruch auf dekodiertem Assist-Text (kein Token-Grenzen-Stopp). **`usage`:** `prompt_tokens` = Byte-Tokenizer-Länge des Prompts; `completion_tokens` = Anzahl gesampelter neuer Token-IDs; `total_tokens` = Summe (bei Stop kann `completion_tokens` größer sein als die Länge des gekürzten `content`). Checkpoint: `MiniGptTinyBackend::from_checkpoint_dir` oder `with_defaults` mit geladenem Modell. |
 
 Zusätzliches Crate **[`rusty_ai_workspace`](../rusty_ai_workspace/README.md)** (Workspace-Member): Index + Suche; Feature **`embeddings`** dort für HTTP-Embeddings.
 
 ```bash
 cargo test -p rusty_ai_agent
-cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
+cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec + minigpt
 ```
 
 ---
@@ -43,6 +44,7 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 | Policy | [`AllowlistPolicy`](src/policy/allowlist.rs) |
 | Orchestrierung | [`complete_with_tool_parse_retries`](src/execution/orchestrator.rs) |
 | Fallback | [`FallbackBackend`](src/execution/fallback_backend.rs) |
+| Lokales Tiny-LLM (Feature **`minigpt`**) | [`MiniGptTinyBackend`](src/minigpt_backend.rs) |
 | Telemetrie (lokal) | [`LocalTelemetry`](src/telemetry/mod.rs), [`TimedBackend`](src/telemetry/mod.rs) |
 | Vorschau / Text kürzen | [`format_replace_preview`](src/tools/diff_preview.rs), [`truncate_middle`](src/tools/diff_preview.rs), [`truncate_utf8_prefix`](src/tools/diff_preview.rs) (UTF-8-sicheres Präfix; u. a. für Log-Auszüge) |
 | Diagnosen (Phase 2) | [`parse_cargo_json_stream`](src/feedback/diagnostics.rs), [`parse_lsp_diagnostic_json`](src/feedback/diagnostics.rs), [`merge_diagnostics`](src/feedback/diagnostics.rs), [`format_for_prompt`](src/feedback/diagnostics.rs) |
@@ -63,6 +65,7 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 |  | `cargo run -p rusty_ai_agent --example agent_demo --features real-exec -- --real` | `real-exec` |
 | **agent_retry_demo** | `cargo run -p rusty_ai_agent --example agent_retry_demo` | — |
 | **dual_backend_demo** | `cargo run -p rusty_ai_agent --example dual_backend_demo` | — |
+| **tiny_llm_fallback_demo** | `cargo run -p rusty_ai_agent --example tiny_llm_fallback_demo --features minigpt` | `minigpt` |
 | **telemetry_demo** | `cargo run -p rusty_ai_agent --example telemetry_demo` | — |
 | **openai_smoke** | `cargo run -p rusty_ai_agent --example openai_smoke --features http` | `http` |
 | **openai_stream** | `cargo run -p rusty_ai_agent --example openai_stream --features http` | `http` |

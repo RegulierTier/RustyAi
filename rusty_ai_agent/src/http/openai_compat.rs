@@ -219,6 +219,8 @@ struct ChatCompletionRequestBody<'a> {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     stop: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -285,6 +287,7 @@ fn build_request_body<'a>(
         messages,
         max_tokens: request.max_tokens,
         temperature: request.temperature,
+        top_p: request.top_p,
         stop: request.stop_sequences.clone(),
         tools,
         stream,

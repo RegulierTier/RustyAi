@@ -1,85 +1,139 @@
-# RustyAi
+# 🚀 RustyAI
 
-Experimenteller **Rust-Workspace** für nachvollziehbare ML-/LLM-Bausteine: eigene Tensor- und Autograd-Schichten, ein kleiner **Decoder-only-Transformer** (`MiniGpt`), optional GPT-2-Import und ein separates **Agent-Crate** (Tools, Policies, optional HTTP) für IDE-nahe Workflows.
-
-**Lizenz:** MIT **oder** Apache-2.0 (siehe Workspace-`Cargo.toml`).
+> ⚡ A low-level AI experiment in pure Rust — focused on understanding how intelligent systems work under the hood.
 
 ---
 
-## Schnellstart
+## 🧠 What is RustyAI?
 
-Vom Repository-Root:
+RustyAI is an experimental project that explores how AI systems can be built **from scratch in Rust**.
 
-```bash
-cargo test --workspace
-cargo fmt --all --check
-cargo clippy --workspace --all-targets
+Instead of relying on external machine learning frameworks, this project focuses on:
+
+* building core logic manually
+* understanding model behavior
+* experimenting with custom AI approaches
+
+👉 The goal is not to compete with large AI models, but to **learn and explore how they work internally**.
+
+---
+
+## ⚡ Current Capabilities
+
+* 🧠 Basic AI-like response generation
+* ⚙️ Custom inference logic
+* 🧩 Modular Rust architecture
+* 🔬 Experimental design for rapid iteration
+
+---
+
+## ⚡ Demo
+
+```bash id="demo_real1"
+$ cargo run
+
+🚀 RustyAI initialized
+Mode: experimental
+----------------------------
+
+Input: Hello
+Output: Hi! How can I help you?
+
+Input: What is AI?
+Output: AI is a way to make machines simulate intelligent behavior.
+
+----------------------------
+Session ended.
 ```
 
-**LLM lokal ohne Netz** (eingebettete Mini-Gewichte, Byte-Tokenizer):
+---
 
-```bash
-cargo run -p rusty_ai --example mini_local_inference
+## 🏗️ Project Structure
+
+```id="struct_real1"
+src/
+├── model/        # core logic / structures
+├── inference/    # response generation
+├── training/     # experimental logic (WIP)
+├── utils/        # helper functions
+└── main.rs       # entry point
 ```
 
-Weitere Beispiele: siehe Abschnitt [Beispiele](#beispiele) und [`rusty_ai/README.md`](rusty_ai/README.md).
+---
+
+## 🧠 Philosophy
+
+RustyAI is built around one core idea:
+
+> **If you want to understand AI, build it yourself.**
+
+This project emphasizes:
+
+* transparency over abstraction
+* simplicity over completeness
+* experimentation over production
 
 ---
 
-## Workspace-Übersicht
+## 🚧 Project Status
 
-| Crate | Rolle (Kurz) |
-| ----- | ------------- |
-| [`rusty_ai_core`](rusty_ai_core) | `Tensor`, Shapes, Basissops |
-| [`rusty_ai_autograd`](rusty_ai_autograd) | `Variable`, Backprop |
-| [`rusty_ai_nn`](rusty_ai_nn) | Linear, GELU, LayerNorm, Init |
-| [`rusty_ai_ml`](rusty_ai_ml) | SGD, Adam, Batches |
-| [`rusty_ai_llm`](rusty_ai_llm) | `MiniGpt`, Generierung, Checkpoints, optional BPE/Hub |
-| [`rusty_ai`](rusty_ai) | Meta-Crate: Re-Exports des Kerns |
-| [`rusty_ai_backend_candle`](rusty_ai_backend_candle) | Optional: Candle (CPU/CUDA), FP8-Hilfen |
-| [`rusty_ai_agent`](rusty_ai_agent) | `LlmBackend`, Tool-Protokoll, Policies, optional `http` |
-| [`rusty_ai_workspace`](rusty_ai_workspace) | Workspace-Index, Suche, optional Embeddings |
+⚠️ Early-stage and experimental.
 
-Abhängigkeiten und Features pro Crate: jeweils `README.md` im Ordner sowie [**Handbuch §2**](docs/HANDBUCH.md).
+Expect:
+
+* incomplete features
+* simple / non-optimized logic
+* frequent changes
 
 ---
 
-## Dokumentation
+## 🗺️ Roadmap
 
-| Ressource | Inhalt |
-| --------- | ------ |
-| [**`docs/HANDBUCH.md`**](docs/HANDBUCH.md) | Architektur, alle Crates, typische Abläufe (MLP, Mini-GPT, **FIM**, **Sliding-Window**/`attention_window`, Agent, Checkpoints, Candle Tier 1/2) |
-| [**`docs/README.md`**](docs/README.md) | Index der Dokumentationsdateien und Crate-READMEs |
-| [**`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`**](docs/ARCHITEKTUR_IDE_ROADMAP_B.md) | IDE-nah: Ziele, Roadmap (Pfad B) |
-| [**`rusty_ai_llm/README.md`**](rusty_ai_llm/README.md) | LLM-API, FIM, Features `gpt2-bpe` / `hf-hub`, **lokales Mini-Bundle** |
-| [**`rusty_ai_backend_candle/README.md`**](rusty_ai_backend_candle/README.md) | Optionales Candle-Backend, Abgrenzung zu CPU-`TrainableMiniGpt`, optionaler Forward-Test |
-| [**`rusty_ai_agent/README.md`**](rusty_ai_agent/README.md) | Agent, HTTP, Policies, Beispiele |
-
-API-Details: `cargo doc -p rusty_ai --no-deps --open` (optional mit `--features …`).
-
-**LLM kurz:** Autoregression mit KV-Cache (`generate_from_ids`, …); **FIM** (Fill-in-the-Middle) mit `forward_fim` / `generate_fim_middle_from_ids` — Details und Limits in [`rusty_ai_llm/README.md`](rusty_ai_llm/README.md) und [Handbuch §2.5](docs/HANDBUCH.md). Optional **`MiniGptConfig::attention_window`** für längere Kontexte (Sliding-Window + begrenzter KV-Cache). Candle: nur separater Matmul-/FP8-Pfad, kein gemeinsames Training mit `TrainableMiniGpt` ([§2.6](docs/HANDBUCH.md)).
+* [ ] Improve response quality
+* [ ] Add better inference logic
+* [ ] Model persistence (save/load)
+* [ ] CLI interaction mode
+* [ ] Basic benchmarking
+* [ ] Internal documentation
 
 ---
 
-## Beispiele (Auswahl)
+## ▶️ Getting Started
 
-| Befehl | Thema |
-| ------ | ----- |
-| `cargo run -p rusty_ai --example train_mlp` | Kleines MLP trainieren |
-| `cargo run -p rusty_ai --example train_mini_gpt` | Mini-GPT Next-Token (CPU-Autograd) |
-| `cargo run -p rusty_ai --example train_micro_checkpoint` | Mini-Profil trainieren → `assets/mini_local/` schreiben |
-| `cargo run -p rusty_ai --example mini_local_inference` | Checkpoint aus eingebetteten Bytes, **ohne Netz** |
+### Requirements
 
-Agent- und Workspace-Beispiele: [`docs/HANDBUCH.md` §2.8–2.9](docs/HANDBUCH.md) bzw. [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md).
+* Rust (stable)
 
----
+### Run
 
-## Status und Philosophie
-
-Das Projekt ist **experimentell**: Fokus auf Verständnis und erweiterbare Bausteine, nicht auf einen produktionsreifen Chatbot. Der Kernpfad ist **CPU-Autograd**; GPU/Candle ist optional und **nicht** als Drop-in fürs gleiche `TrainableMiniGpt`-Training angebunden (siehe [Handbuch §2.6](docs/HANDBUCH.md) und [`rusty_ai_backend_candle/README.md`](rusty_ai_backend_candle/README.md)). **FIM** (Fill-in-the-Middle) ist im Kern-LLM-Crate dokumentiert ([`rusty_ai_llm/README.md`](rusty_ai_llm/README.md), Handbuch §2.5).
+```bash id="run_real1"
+git clone https://github.com/RegulierTier/RustyAi.git
+cd RustyAi
+cargo run
+```
 
 ---
 
-## Mitwirken
+## 🧪 Purpose of this project
 
-Issues und Beiträge sind willkommen. Vor größeren Änderungen die bestehenden Tests und `clippy` im Workspace ausführen.
+This is a **learning and engineering project**.
+
+It demonstrates:
+
+* low-level system design
+* Rust programming skills
+* curiosity about AI internals
+
+👉 Think of it as an **AI playground**, not a finished product.
+
+---
+
+## 🤝 Contributing
+
+Contributions, ideas, and experiments are welcome.
+
+---
+
+## 📜 License
+
+MIT

@@ -44,6 +44,9 @@ pub struct CompletionRequest {
     pub max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// Nucleus sampling `top_p` (OpenAI-style); `None` = Backend-Default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
     /// Sequences that should truncate generation (OpenAI-style `stop`; multiple strings).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stop_sequences: Vec<String>,
@@ -122,6 +125,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         let res = b.complete(req).unwrap();

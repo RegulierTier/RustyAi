@@ -41,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tools: vec![],
         max_tokens: None,
         temperature: None,
+        top_p: None,
         stop_sequences: vec![],
     };
 

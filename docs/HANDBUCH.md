@@ -69,7 +69,7 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 
 - **`Variable`:** Hält `Tensor`-Daten in `RefCell` (Optimierer können Gewichte **in-place** setzen), optional `grad`, sowie die Operation (`Op`).
 - **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), **`SlidingCausalMask`** (Sliding-Window auf Scores), **`FimMask`** (FIM-Sichtbarkeit auf Attention-Scores, siehe `rusty_ai_llm::fim`), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM über alle Positionen `t < seq-1`), **`CrossEntropyNextTokenSubset`** (Next-Token-CE nur an ausgewählten Zeitindizes `t` — für **FIM** mit `fim_middle_prediction_positions`), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
-- **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts.
+- **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts. Die Implementierung arbeitet **iterativ** mit einem expliziten Heap-Stack (`Vec`) über den Graphen — **kein** rekursiver Abstieg über den Aufruf-Stack; tiefe Mini-GPT-Graphen sind damit nicht durch `backward` selbst im Call-Stack begrenzt.
 - **Kontext:** `grad_enabled()`, `set_grad_enabled`, `no_grad(|| { ... })` — im Inferenzpfad keine Graphen erzeugen.
 
 **Typischer Fehler:** Gleiche `Variable`-Knoten müssen zwischen Epochen mit `zero_grad()` geleert werden, bevor ein neuer Forward/Backward-Lauf startet.
@@ -171,7 +171,7 @@ Kurzüberblick und Beispielbefehle: **[`rusty_ai/README.md`](../rusty_ai/README.
 
 **Verantwortung:** **Agent-/IDE-Protokoll** (Pfad B): austauschbares [`LlmBackend`](../rusty_ai_agent/src/core/llm_backend.rs), Chat-Typen (`CompletionRequest` / `CompletionResponse`), OpenAI-artige **Tool-Aufrufe** (`ModelToolCall`) und die ausführbare Repräsentation [`ToolInvocation`](../rusty_ai_agent/src/tools/invocation.rs) (`read_file`, `write_file`, `run_cmd`, `search_replace`). JSON-Schema: [`schemas/tool_invocation.json`](../rusty_ai_agent/schemas/tool_invocation.json).
 
-Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http`**: [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) (`POST …/chat/completions`, blocking `reqwest`). **Streaming (SSE):** [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/http/openai_compat.rs) inkl. Aggregation von Text- und Tool-Deltas. Optional **Feature `real-exec`:** [`RealExecutor`](../rusty_ai_agent/src/execution/executor.rs) für echtes Lesen/Schreiben und Subprocess unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs).
+Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http`**: [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) (`POST …/chat/completions`, blocking `reqwest`). **Streaming (SSE):** [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/http/openai_compat.rs) inkl. Aggregation von Text- und Tool-Deltas. Optional **Feature `real-exec`:** [`RealExecutor`](../rusty_ai_agent/src/execution/executor.rs) für echtes Lesen/Schreiben und Subprocess unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs). Optional **Feature `minigpt`:** [`MiniGptTinyBackend`](../rusty_ai_agent/src/minigpt_backend.rs) — lokales [`MiniGpt`](../rusty_ai_llm/src/model/minigpt.rs) über [`rusty_ai_llm`](../rusty_ai_llm/README.md) (Byte-Tokenizer; Anfragen mit nicht-leeren `tools` werden abgelehnt). **`top_p`** und **`temperature`** optional in [`CompletionRequest`](../rusty_ai_agent/src/core/llm_backend.rs), sonst Backend-Defaults; **`stop_sequences`** als Substring auf dem bisher generierten Assist-Text (Byte-Dekodierung, kein BPE-Token-Stopp). **`CompletionUsage`:** `prompt_tokens` = Prompt-Länge in Byte-Tokens; `completion_tokens` = Anzahl **gesampelter** neuer Token-IDs (kann bei Stop-Kürzung größer sein als die sichtbare Textlänge); `total_tokens` = Summe.
 
 **Weitere Bausteine (Auswahl):**
 
@@ -180,6 +180,7 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | [`tool_parse`](../rusty_ai_agent/src/tools/parse.rs) | `parse_json_arguments_loose`, `tool_invocations_from_model_calls`, `tool_invocations_try_each`, `tool_parse_retry_instruction` |
 | [`orchestrator`](../rusty_ai_agent/src/execution/orchestrator.rs) | `complete_with_tool_parse_retries` (mehrere `complete`-Runden; optional `LocalTelemetry`) |
 | [`fallback_backend`](../rusty_ai_agent/src/execution/fallback_backend.rs) | `FallbackBackend`: primärer `LlmBackend`, bei Fehler Fallback |
+| [`minigpt_backend`](../rusty_ai_agent/src/minigpt_backend.rs) | `MiniGptTinyBackend`: lokales Byte-LM (`rusty_ai_llm`), Feature **`minigpt`** |
 | [`telemetry`](../rusty_ai_agent/src/telemetry/mod.rs) | `LocalTelemetry`, `TimedBackend` (Latenz-/Aufrufzähler), `record_cargo_check` |
 | [`diff_preview`](../rusty_ai_agent/src/tools/diff_preview.rs) | `format_replace_preview`, `truncate_middle` (Mitte auslassen), `truncate_utf8_prefix` (Präfix auf Byte-Länge **ohne** UTF-8-Zeichensplit — für Logs und HTTP-Fehlertexte) |
 | [`diagnostics`](../rusty_ai_agent/src/feedback/diagnostics.rs) | `parse_cargo_json_stream`, `parse_lsp_diagnostic_json`, `merge_diagnostics`, `format_for_prompt` |
@@ -199,6 +200,7 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | `cargo run -p rusty_ai_agent --example agent_demo --features real-exec -- --real` | Echtes FS / `cargo check` |
 | `cargo run -p rusty_ai_agent --example agent_retry_demo` | Tool-Parse-Retry-Schleife |
 | `cargo run -p rusty_ai_agent --example dual_backend_demo` | Primär + Fallback-Backend |
+| `cargo run -p rusty_ai_agent --example tiny_llm_fallback_demo --features minigpt` | Fallback auf lokales `MiniGpt` (ohne Netz) |
 | `cargo run -p rusty_ai_agent --example telemetry_demo` | `TimedBackend` + `LocalTelemetry` |
 | `cargo run -p rusty_ai_agent --example openai_smoke --features http` | Eine Chat-Completion (Cloud; Ollama: `-- --ollama`) |
 | `cargo run -p rusty_ai_agent --example openai_stream --features http` | SSE-Streaming |
@@ -285,7 +287,7 @@ Details: Abschnitt **2.5** in diesem Handbuch und [`rusty_ai_llm/README.md`](../
 
 ### 3.4 Agent-Orchestrierung (`rusty_ai_agent`, Pfad B)
 
-1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/core/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/http/openai_compat.rs) (Cloud oder Ollama).
+1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/core/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/http/openai_compat.rs) (Cloud oder Ollama). Optional ohne Netz: Feature **`minigpt`**, [`MiniGptTinyBackend`](../rusty_ai_agent/src/minigpt_backend.rs) (synchrones Offline-„Tiny-LLM“; siehe Abschnitt **2.8**).
 2. **Tools definieren:** `CompletionRequest::tools` mit JSON-Schema-artigen [`ToolDefinition`](../rusty_ai_agent/src/core/llm_backend.rs)-Einträgen; Modell liefert `ModelToolCall`s.
 3. **Parsen und ausführen:** `tool_invocations_try_each` oder `tool_invocations_from_model_calls` → [`ToolInvocation`](../rusty_ai_agent/src/tools/invocation.rs); vor Ausführung [`AllowlistPolicy::validate`](../rusty_ai_agent/src/policy/allowlist.rs).
 4. **Fehlerhafte Tool-JSON:** [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/execution/orchestrator.rs) mit `max_complete_calls` und optional `Some(&telemetry)` für Zähler.

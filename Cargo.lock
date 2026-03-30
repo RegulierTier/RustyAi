@@ -2090,6 +2090,7 @@ name = "rusty_ai_agent"
 version = "2.0.0"
 dependencies = [
  "reqwest",
+ "rusty_ai_llm",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

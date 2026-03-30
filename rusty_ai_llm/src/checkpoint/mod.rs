@@ -1,7 +1,7 @@
 //! Save and load [`MiniGpt`](crate::MiniGpt) weights as Hugging-Face-style `safetensors` + `config.json`.
 //!
 //! Tensor names follow a stable RustyAi scheme (`blocks.{i}.*`). Loading GPT-2 checkpoints from the Hub
-//! is implemented in [`gpt2_hf`](crate::gpt2_hf).
+//! is implemented in [`hf::gpt2`](crate::hf::gpt2).
 //!
 //! TODO: shard / multi-file checkpoints; `safetensors` streaming for huge models.
 

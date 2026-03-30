@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tokenizers::Tokenizer;
 
-use crate::generate::generate_from_ids;
+use crate::inference::generate::generate_from_ids;
 use crate::model::MiniGpt;
 
 /// Wraps HF [`Tokenizer`] for OpenAI/HF GPT-2–style byte-level BPE.

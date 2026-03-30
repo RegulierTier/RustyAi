@@ -7,8 +7,8 @@ use std::rc::Rc;
 use rusty_ai_autograd::Variable;
 use rusty_ai_core::TensorError;
 
-use crate::attention_var::{causal_attention_var, fim_attention_var};
-use crate::model::{DecoderBlock, MiniGpt, MiniGptConfig};
+use crate::attention::{causal_attention_var, fim_attention_var};
+use super::{DecoderBlock, MiniGpt, MiniGptConfig};
 
 fn linear_3d_var(
     x: &Rc<Variable>,
@@ -299,7 +299,7 @@ impl TrainableMiniGpt {
 mod tests {
     use super::*;
 
-    use crate::fim::fim_middle_prediction_positions;
+    use crate::inference::fim::fim_middle_prediction_positions;
     use rusty_ai_autograd::{backward, Variable};
 
     fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {

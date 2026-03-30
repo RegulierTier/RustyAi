@@ -150,6 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tools: vec![],
         max_tokens: None,
         temperature: None,
+        top_p: None,
         stop_sequences: vec![],
     };
     run_turn(&backend_ok, &policy, disp.as_ref(), req)?;
@@ -176,6 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tools: vec![],
         max_tokens: None,
         temperature: None,
+        top_p: None,
         stop_sequences: vec![],
     };
     match run_turn(&backend_escape, &policy, disp.as_ref(), req2) {
@@ -208,6 +210,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tools: vec![],
         max_tokens: None,
         temperature: None,
+        top_p: None,
         stop_sequences: vec![],
     };
     run_turn(&backend_cargo, &policy, disp.as_ref(), req3)?;

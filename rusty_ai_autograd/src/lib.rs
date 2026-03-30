@@ -3,6 +3,8 @@
 //! [`Variable`] wraps a tensor and records how it was produced (`Op`). Calling [`backward`]
 //! on a scalar loss node propagates gradients backward through the graph and accumulates
 //! them in each leaf's `grad` field. Optimizers then read those gradients and update weights.
+//! **`backward` is iterative** (explicit `Vec` stack over the graph), not recursive — deep graphs
+//! are not limited by the native thread call stack for the reverse pass.
 //!
 //! Includes ops for small MLPs and for a trainable Mini-GPT (GELU, layer norm, softmax,
 //! embedding gather, causal attention, next-token cross-entropy).

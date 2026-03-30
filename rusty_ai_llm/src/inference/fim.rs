@@ -88,7 +88,7 @@ pub fn fim_middle_prediction_positions(
 ///
 /// **KV-Cache:** Diese Referenz-API führt FIM ohne inkrementellen KV-Decode aus ([`crate::MiniGpt::forward_fim`]);
 /// für lange Füllsequenzen wird die Sequenz pro Schritt vollständig neu eingespeist (siehe
-/// [`crate::generate::generate_fim_middle_from_ids`]).
+/// [`crate::inference::generate::generate_fim_middle_from_ids`]).
 pub fn fim_next_logit_timestep(
     prefix_len: usize,
     middle_len: usize,

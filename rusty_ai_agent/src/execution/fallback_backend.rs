@@ -81,6 +81,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         let r = fb.complete(req).unwrap();
@@ -98,6 +99,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         assert!(fb.complete(req).is_err());

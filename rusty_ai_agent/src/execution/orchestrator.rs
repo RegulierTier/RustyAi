@@ -155,6 +155,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         let out = complete_with_tool_parse_retries(&backend, req, 2, None).unwrap();
@@ -197,6 +198,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         let _ = complete_with_tool_parse_retries(&backend, req, 2, Some(tel.as_ref())).unwrap();
@@ -223,6 +225,7 @@ mod tests {
             tools: vec![],
             max_tokens: None,
             temperature: None,
+            top_p: None,
             stop_sequences: vec![],
         };
         assert!(complete_with_tool_parse_retries(&backend, req, 1, None).is_err());

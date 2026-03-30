@@ -6,7 +6,7 @@
 
 use rusty_ai_core::{add, matmul, mul, softmax, transpose_batched_last2, Tensor, TensorError};
 
-use crate::kv_cache::slice_along_seq;
+use crate::cache::slice_along_seq;
 
 fn softmax_last_row_1d(x: &[f32]) -> Vec<f32> {
     let m = x.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -101,7 +101,7 @@ pub fn causal_attention_windowed(
 
 /// Wie [`causal_attention`], aber mit additiver Maske auf den Scores (`mask[i,j]` zu jedem `scores[b,i,j]`).
 ///
-/// `mask` hat Shape `(seq, seq)` (z. B. [`crate::fim::fim_additive_mask`]) und wird pro Batch-Zeile `b` wiederholt.
+/// `mask` hat Shape `(seq, seq)` (z. B. [`crate::inference::fim::fim_additive_mask`]) und wird pro Batch-Zeile `b` wiederholt.
 pub fn attention_with_additive_mask(
     q: &Tensor,
     k: &Tensor,
@@ -234,7 +234,7 @@ pub fn attention_single_query(
 mod tests {
     use super::*;
 
-    use crate::fim::fim_additive_mask;
+    use crate::inference::fim::fim_additive_mask;
 
     fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
         a.iter()
