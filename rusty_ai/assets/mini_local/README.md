@@ -2,7 +2,7 @@
 
 Dieses Verzeichnis enthält ein **RustyAi**-Checkpoint im üblichen Format:
 
-- `config.json` — `model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`, `n_layer`, …
+- `config.json` — `model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`, `n_layer`, …; optional **`attention_window`** (Sliding-Window; siehe [`rusty_ai_llm/README.md`](../../../rusty_ai_llm/README.md) und Handbuch §2.5).
 - `model.safetensors` — FP32-Gewichte (typisch **weit unter 5 MiB** für `MiniGptConfig::micro_local()`).
 
 **Erneuern**

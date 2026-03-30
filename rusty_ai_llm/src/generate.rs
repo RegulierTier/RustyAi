@@ -1,13 +1,41 @@
 //! Autoregressive text generation and token sampling from logits.
 //!
 //! - **Inkrementell / IDE:** [`generate_from_ids_with_callback`] liefert jeden neuen Token an einen Callback (Abbruch mit `false`).
+//! - **FIM:** [`generate_fim_middle_from_ids`] füllt die Mittel-Spanne per wiederholtem [`MiniGpt::forward_fim`] (ohne KV-Cache).
 //! - Greedy `argmax` nutzt [`f32::total_cmp`] — deterministische Reihenfolge bei Gleichstand und NaN.
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 
+use crate::fim::fim_next_logit_timestep;
 use crate::kv_cache::KvCache;
 use crate::model::MiniGpt;
 use crate::tokenizer::ByteTokenizer;
+
+/// Logits für eine Zeitscheibe `(1, vocab)` aus `logits` der Form `(1, seq, vocab)`.
+pub(crate) fn logits_timestep_1batch(logits: &Tensor, t: usize) -> Result<Tensor, TensorError> {
+    let s = logits.shape();
+    if s.len() != 3 || s[0] != 1 {
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: s.to_vec(),
+                to: vec![1, 0, 0],
+            },
+        ));
+    }
+    let seq = s[1];
+    let v = s[2];
+    if t >= seq {
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: vec![t],
+                to: vec![seq],
+            },
+        ));
+    }
+    let data = logits.data();
+    let start = t * v;
+    Tensor::from_vec(data[start..start + v].to_vec(), vec![1, v])
+}
 
 fn argmax(data: &[f32]) -> usize {
     data.iter()
@@ -180,6 +208,44 @@ pub fn generate(
     Ok(ByteTokenizer::decode(&out))
 }
 
+/// Füllt die **Mitte** einer Sequenz `[prefix][middle][suffix]` iterativ: pro Schritt
+/// [`MiniGpt::forward_fim`], Sampling aus der Zeile [`fim_next_logit_timestep`], dann Überschreiben von
+/// `token_ids[prefix_len + k]`. **Kein KV-Cache** — jeder Schritt ist ein voller FIM-Forward über die
+/// aktuelle Sequenz (geeignet für kurze Spannen; lange Kontexte: siehe Handbuch).
+///
+/// `token_ids.len()` muss mindestens `prefix_len + middle_len` sein (Suffix optional).
+pub fn generate_fim_middle_from_ids(
+    model: &MiniGpt,
+    mut token_ids: Vec<usize>,
+    prefix_len: usize,
+    middle_len: usize,
+    temperature: f32,
+    top_p: f32,
+    seed: &mut u32,
+) -> Result<Vec<usize>, TensorError> {
+    let seq = token_ids.len();
+    if middle_len == 0 {
+        return Ok(token_ids);
+    }
+    if prefix_len + middle_len > seq {
+        return Err(TensorError::Shape(
+            rusty_ai_core::ShapeError::InvalidReshape {
+                from: vec![prefix_len, middle_len],
+                to: vec![seq],
+            },
+        ));
+    }
+    for num_filled in 0..middle_len {
+        let t = fim_next_logit_timestep(prefix_len, middle_len, num_filled)
+            .ok_or(TensorError::EmptyTensor)?;
+        let logits_3d = model.forward_fim(&token_ids, prefix_len, middle_len)?;
+        let logits_1 = logits_timestep_1batch(&logits_3d, t)?;
+        let next = sample_token(&logits_1, temperature, top_p, seed)?;
+        token_ids[prefix_len + num_filled] = next;
+    }
+    Ok(token_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +262,7 @@ mod tests {
             n_layers: 2,
             ffn_dim: 128,
             max_seq: 128,
+            attention_window: None,
         };
         let model = MiniGpt::random(cfg, &mut seed).unwrap();
         let prompt = "hi";
@@ -217,6 +284,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let model = MiniGpt::random(cfg, &mut seed).unwrap();
         let ids = ByteTokenizer::encode("abc");
@@ -234,6 +302,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let model = MiniGpt::random(cfg, &mut seed).unwrap();
         let prompt = ByteTokenizer::encode("x");
@@ -252,6 +321,24 @@ mod tests {
     }
 
     #[test]
+    fn generate_fim_middle_from_ids_runs() {
+        let mut seed = 11u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 32,
+            d_model: 16,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 32,
+            max_seq: 32,
+            attention_window: None,
+        };
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let ids = vec![1usize, 2, 10, 11, 3];
+        let out = generate_fim_middle_from_ids(&m, ids, 2, 2, 1.0, 1.0, &mut 5u32).unwrap();
+        assert_eq!(out.len(), 5);
+    }
+
+    #[test]
     fn generate_from_ids_with_callback_stops_early() {
         let mut seed = 3u32;
         let cfg = MiniGptConfig {
@@ -261,6 +348,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let model = MiniGpt::random(cfg, &mut seed).unwrap();
         let prompt = ByteTokenizer::encode("a");

@@ -2,6 +2,8 @@
 
 **Sammel-Crate** für den ML-/LLM-Kern des Workspaces: Re-Exports aus `rusty_ai_core`, `rusty_ai_autograd`, `rusty_ai_nn`, `rusty_ai_ml` und `rusty_ai_llm` unter den Modulnamen `core`, `autograd`, `nn`, `ml`, `llm`. Häufig genutzte Typen und Funktionen stehen auch auf der Crate-Root (`Tensor`, `Variable`, `MiniGpt`, `generate`, `load_minigpt_checkpoint`, `load_minigpt_checkpoint_bytes`, …).
 
+**Weitere LLM-API** (FIM, Sliding-Window-Attention, Hilfsfunktionen): über das Modul **`rusty_ai::llm`** — z. B. `llm::generate_fim_middle_from_ids`, `llm::causal_attention_windowed`, `llm::fim_next_logit_timestep`, `llm::MiniGptConfig` mit `attention_window`. Nicht alles ist auf der Root re-exportiert; vollständig: `cargo doc -p rusty_ai_llm`.
+
 | Weiterlesen | Inhalt |
 | ----------- | ------ |
 | **[`docs/HANDBUCH.md`](../docs/HANDBUCH.md)** | Architektur, alle Crates, typische Abläufe (MLP, Mini-GPT, **FIM**, GPT-2, lokales Mini-Bundle, Agent) |

@@ -9,18 +9,24 @@ use rusty_ai_core::Tensor;
 use rusty_ai_core::TensorError;
 
 /// Scaled dot-product causal attention on variable tensors `(B*H, L, d_h)`.
+///
+/// `window`: `None` = volles kausales Fenster; `Some(w)` = Sliding-Window der Länge `w` ≥ 1.
 pub fn causal_attention_var(
     q: &Rc<Variable>,
     k: &Rc<Variable>,
     v: &Rc<Variable>,
     d_head: usize,
+    window: Option<usize>,
 ) -> Result<Rc<Variable>, TensorError> {
     let kt = Variable::transpose_batched_last2(k)?;
     let scores = Variable::matmul(q, &kt)?;
     let scale = 1.0f32 / (d_head as f32).sqrt();
     let scale_t = Variable::leaf(Tensor::scalar(scale));
     let scaled = Variable::mul(&scores, &scale_t)?;
-    let masked = Variable::causal_mask_scores(&scaled)?;
+    let masked = match window {
+        None => Variable::causal_mask_scores(&scaled)?,
+        Some(w) => Variable::sliding_causal_mask_scores(&scaled, w)?,
+    };
     let attn = Variable::softmax_last_dim(&masked)?;
     Variable::matmul(&attn, v)
 }
@@ -71,7 +77,7 @@ mod tests {
         let qv = Variable::leaf(qt.clone());
         let kv = Variable::leaf(kt.clone());
         let vv = Variable::leaf(vt.clone());
-        let out_v = causal_attention_var(&qv, &kv, &vv, dh).unwrap();
+        let out_v = causal_attention_var(&qv, &kv, &vv, dh, None).unwrap();
         let diff: f32 = out_t
             .data()
             .iter()

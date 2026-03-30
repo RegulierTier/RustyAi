@@ -34,7 +34,7 @@ cargo test -p rusty_ai_llm --features gpt2-bpe
 
 - **Layout:** flache Token-ID-Liste als `[prefix][middle][suffix]`; Längen `prefix_len` und `middle_len` werden explizit übergeben (Rest = Suffix). Optionale Spezialmarker (z. B. `<|fim_*|>`) sind nur eine Vokabel-/Tokenizer-Frage und nicht Teil des Kern-API.
 - **`fim_additive_mask` / `fim_allowed`:** Sichtbarkeitsmaske für Attention (Präfix kausal; Mitte sieht Präfix, eigene Region und Suffix; Suffix sieht Präfix, ganze Mitte und kausal den Rest).
-- **`MiniGpt::forward_fim` / `TrainableMiniGpt::forward_fim`:** Forward mit dieser Maske (kein KV-Cache — eigene Inferenz-Pfade später).
+- **`MiniGpt::forward_fim` / `TrainableMiniGpt::forward_fim`:** Forward mit dieser Maske (kein KV-Cache; iteratives Füllen: **`generate_fim_middle_from_ids`**, **`fim_next_logit_timestep`**).
 - **Training:** Next-Token-Loss nur auf Positionen in der Mitte: `rusty_ai_autograd::Variable::cross_entropy_next_token_subset` mit Ziel-Indizes aus **`fim_middle_prediction_positions`** (Mittelwert nur über diese `t`).
 
 ### Inkrementelle Generierung (Phase 4)
@@ -43,14 +43,32 @@ cargo test -p rusty_ai_llm --features gpt2-bpe
 
 ### Kontextlänge und Speicher
 
-- **`MiniGptConfig::max_seq`** — obere Grenze für Positions-Einbettungen; sehr lange Prompts sind nicht das Ziel dieser kleinen Referenz-API.
-- **Attention** im vollen Forward: grob **O(L²)** ([`src/attention.rs`](src/attention.rs)); KV-Cache linear im Kontext, aber ohne Flash-/Window-Attention.
+- **`MiniGptConfig::max_seq`** — obere Grenze für Positions-Einbettungen; **absolute Positionsindizes** werden darüber hinaus auf **`max_seq - 1`** gekappt (wie im [Handbuch](../docs/HANDBUCH.md) § 2.5). Sehr lange Prompts sind nicht das Ziel dieser kleinen Referenz-API.
+- **`MiniGptConfig::attention_window`** — optional **`Some(w)`**: Sliding-Window-Attention und KV-Cache mit maximal **`w`** gespeicherten Zeitschritten pro Layer; **`None`** = unbegrenzt kausal (wie bisher).
+- **Attention:** kausaler Pfad ohne FIM-Maske ist zeilenweise implementiert (keine volle `L×L`-Score-Matrix); FIM / freie Masken nutzen weiterhin die `matmul`-Form ([`src/attention.rs`](src/attention.rs)). CUDA-Flash-Kernels sind nicht eingebaut; Candle bleibt optional für Matmul-Experimente ([`rusty_ai_backend_candle`](../rusty_ai_backend_candle/README.md)).
+
+## Checkpoints (`config.json`)
+
+Neben `n_embd`, `n_layer`, `n_positions`, … kann **`attention_window`** gesetzt werden (`null` oder positive Zahl): optionales **Sliding-Window** wie bei **`MiniGptConfig::attention_window`**. Fehlt das Feld, verhält sich das Laden wie bisher (**`None`**). **`Some(0)`** ist ungültig.
+
+## API-Schnellwahl (Auswahl)
+
+| Thema | Einstieg |
+| ----- | -------- |
+| Autoregressiv + KV | `MiniGpt::forward_prefill`, `forward_decode_step`, `generate_from_ids` |
+| FIM Training | `TrainableMiniGpt::forward_fim`, `fim_middle_prediction_positions`, `Variable::cross_entropy_next_token_subset` |
+| FIM Inferenz (ohne KV) | `generate_fim_middle_from_ids`, `fim_next_logit_timestep` |
+| Langes Fenster | `MiniGptConfig { attention_window: Some(w), … }`, `causal_attention_windowed`, `truncate_last_along_seq` |
+
+Vollständige Liste: `cargo doc -p rusty_ai_llm --no-deps --open`.
 
 ## Tests (Auswahl)
 
 ```bash
 cargo test -p rusty_ai_llm
-cargo test -p rusty_ai_backend_candle -- --ignored   # optional: MiniGpt-Gewicht → Candle-Matmul-Brücke
+cargo test -p rusty_ai_llm --features gpt2-bpe
+# Optional Candle-Parität (CPU): MiniGpt-Matmul / LM-Head — siehe rusty_ai_backend_candle
+cargo test -p rusty_ai_backend_candle -- --ignored
 ```
 
 ## Dokumentation

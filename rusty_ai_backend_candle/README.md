@@ -27,8 +27,24 @@ Optionales **Candle**-Backend für den RustyAi-Workspace: Matmul auf CPU oder (m
 
 [`TrainableMiniGpt`](https://docs.rs/rusty_ai_llm/latest/rusty_ai_llm/struct.TrainableMiniGpt.html) (Crate **`rusty_ai_llm`**) trainiert auf der CPU mit **`rusty_ai_autograd::Variable`** und **`rusty_ai_core::Tensor`**. Candle-Tensoren und deren Ops bilden **keinen** gemeinsamen Graphen mit diesem Pfad — ein **Drop-in**-GPU-Training für dasselbe Modell ist im Workspace **nicht** vorgesehen (hoher Portierungsaufwand oder ständige Gewichtskopien).
 
-**Praktisch:** LM-Training wie gehabt auf der CPU; dieses Crate für Matmul auf CPU/CUDA, FP8-Hilfen und All-Reduce-Referenzen. Optional: einzelne Gewichtsmatrizen aus einem [`MiniGpt`](https://docs.rs/rusty_ai_llm/latest/rusty_ai_llm/struct.MiniGpt.html) als `f32`-Slices nach Candle laden und **nur Forward** vergleichen (siehe ignorierter Test im `lib.rs` des Crates).
+**Praktisch:** LM-Training wie gehabt auf der CPU; dieses Crate für Matmul auf CPU/CUDA, FP8-Hilfen und All-Reduce-Referenzen.
+
+### Tier 1 vs. Tier 2 (E2E)
+
+| Stufe | Bedeutung |
+| ----- | --------- |
+| **Tier 1** | „E2E light“: `MiniGpt`-Gewichte oder Zwischenaktivierung als `f32`-Slices → Candle-`matmul_f32` (CPU, optional CUDA-Gerät) → numerischer Vergleich mit `rusty_ai_core` / `linear_3d`. **Kein** `backward` über Candle mit dem `TrainableMiniGpt`-Graphen. |
+| **Tier 2** | Vollständiges Modell + Optimizer in Candle — separates Projekt-Mandat, nicht dieses Crate. |
+
+### Optionale Tests (`#[ignore]`)
+
+Im Crate-`lib.rs` (Modul `minigpt_weight_bridge` und `minigpt_lm_head_candle`):
+
+- **`minigpt_w_q_matmul_matches_candle_cpu`** — eine `w_q`-Matrix aus [`MiniGpt::random`](https://docs.rs/rusty_ai_llm/latest/rusty_ai_llm/struct.MiniGpt.html) vs. Candle-CPU-Matmul.
+- **`minigpt_lm_head_matches_candle_cpu`** — LM-Head (`linear_3d`) vs. zusammengesetztes Matmul + Bias in Candle.
 
 ```bash
 cargo test -p rusty_ai_backend_candle -- --ignored
 ```
+
+CUDA-Toolchain für GPU-Matmul ist **nicht** Voraussetzung für diese CPU-Tests.

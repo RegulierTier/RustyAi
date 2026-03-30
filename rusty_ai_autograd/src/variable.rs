@@ -44,6 +44,8 @@ enum Op {
     CausalMask(Rc<Variable>),
     /// FIM attention scores `(batch*heads, seq, seq)`: disallowed `(i,j)` set to `-1e9`; `(prefix_len, middle_len)`.
     FimMask(Rc<Variable>, usize, usize),
+    /// Sliding-window causal mask: `window >= 1`; disallow `(i,j)` when `j < i + 1 - window` (untere Schranke 0).
+    SlidingCausalMask(Rc<Variable>, usize),
     /// Embedding table `(vocab, d)`; `indices` has length `seq` (one row picked per position).
     EmbeddingGather(Rc<Variable>, Vec<usize>),
     /// `(batch, seq, d_model) -> (batch*heads, seq, d_head)`.
@@ -372,6 +374,53 @@ impl Variable {
         }))
     }
 
+    /// Wie [`Self::causal_mask_scores`], aber nur die letzten `window` Keys pro Zeile (inkl. Diagonale).
+    pub fn sliding_causal_mask_scores(
+        scores: &Rc<Variable>,
+        window: usize,
+    ) -> Result<Rc<Variable>, TensorError> {
+        if window == 0 {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![window],
+                    to: vec![1],
+                },
+            ));
+        }
+        let sd = scores.data();
+        let s = sd.shape();
+        if s.len() != 3 || s[1] != s[2] {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: s.to_vec(),
+                    to: vec![0, 0, 0],
+                },
+            ));
+        }
+        let bh = s[0];
+        let seq = s[2];
+        let mut data = sd.data().to_vec();
+        let stride = seq * seq;
+        for b in 0..bh {
+            for i in 0..seq {
+                for j in 0..seq {
+                    if !sliding_causal_allowed(i, j, window) {
+                        data[b * stride + i * seq + j] = -1e9f32;
+                    }
+                }
+            }
+        }
+        let out = Tensor::from_vec(data, s.to_vec())?;
+        if !crate::grad_enabled() {
+            return Ok(leaf_detached(out));
+        }
+        Ok(Rc::new(Self {
+            storage: RefCell::new(out),
+            grad: RefCell::new(None),
+            op: Op::SlidingCausalMask(Rc::clone(scores), window),
+        }))
+    }
+
     /// Next-token language-model loss: for each position `t < seq-1`, predicts `targets[t+1]` from `logits[0,t,:]`.
     /// Scalar mean over `seq-1` positions.
     pub fn cross_entropy_next_token(
@@ -545,6 +594,17 @@ fn leaf_detached(data: Tensor) -> Rc<Variable> {
     })
 }
 
+fn sliding_causal_allowed(i: usize, j: usize, window: usize) -> bool {
+    if window == 0 {
+        return j <= i;
+    }
+    if j > i {
+        return false;
+    }
+    let j0 = i.saturating_sub(window.saturating_sub(1));
+    j >= j0
+}
+
 fn fim_allowed_mask(
     i: usize,
     j: usize,
@@ -711,6 +771,34 @@ fn backward_grad(v: &Rc<Variable>, grad: &Tensor) -> Result<(), TensorError> {
                 for i in 0..seq {
                     for j in 0..seq {
                         if !fim_allowed_mask(i, j, *prefix_len, *middle_len, seq) {
+                            g[b * stride + i * seq + j] = 0.0;
+                        }
+                    }
+                }
+            }
+            let gt = Tensor::from_vec(g, s.to_vec())?;
+            backward_grad(pre, &gt)?;
+            Ok(())
+        }
+        Op::SlidingCausalMask(pre, window) => {
+            let pd = pre.data();
+            let s = pd.shape();
+            if s.len() != 3 {
+                return Err(TensorError::Shape(
+                    rusty_ai_core::ShapeError::InvalidReshape {
+                        from: s.to_vec(),
+                        to: vec![],
+                    },
+                ));
+            }
+            let bh = s[0];
+            let seq = s[2];
+            let mut g = grad.data().to_vec();
+            let stride = seq * seq;
+            for b in 0..bh {
+                for i in 0..seq {
+                    for j in 0..seq {
+                        if !sliding_causal_allowed(i, j, *window) {
                             g[b * stride + i * seq + j] = 0.0;
                         }
                     }

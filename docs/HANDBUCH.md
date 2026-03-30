@@ -68,7 +68,7 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 **Verantwortung:** Dynamischer Rechengraph und Gradienten.
 
 - **`Variable`:** Hält `Tensor`-Daten in `RefCell` (Optimierer können Gewichte **in-place** setzen), optional `grad`, sowie die Operation (`Op`).
-- **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), **`FimMask`** (FIM-Sichtbarkeit auf Attention-Scores, siehe `rusty_ai_llm::fim`), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM über alle Positionen `t < seq-1`), **`CrossEntropyNextTokenSubset`** (Next-Token-CE nur an ausgewählten Zeitindizes `t` — für **FIM** mit `fim_middle_prediction_positions`), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
+- **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), **`SlidingCausalMask`** (Sliding-Window auf Scores), **`FimMask`** (FIM-Sichtbarkeit auf Attention-Scores, siehe `rusty_ai_llm::fim`), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM über alle Positionen `t < seq-1`), **`CrossEntropyNextTokenSubset`** (Next-Token-CE nur an ausgewählten Zeitindizes `t` — für **FIM** mit `fim_middle_prediction_positions`), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
 - **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts.
 - **Kontext:** `grad_enabled()`, `set_grad_enabled`, `no_grad(|| { ... })` — im Inferenzpfad keine Graphen erzeugen.
 
@@ -105,12 +105,12 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 
 - **`ByteTokenizer`:** 256 Zeichen; `encode` / `decode`.
 - **Feature `gpt2-bpe`:** `Gpt2Tokenizer` lädt Hugging-Face-`tokenizer.json` (Rust-Crate `tokenizers`); `encode` / `decode` mit Token-IDs passend zu HF-GPT-2 (`vocab_size` typisch 50257). Hilfsfunktionen: `generate_from_ids` (Tokenizer-unabhängig), `generate_gpt2_text` (Prompt-String → BPE → Sampling → Text).
-- **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
+- **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt); optional **`attention_window: Option<usize>`** — `Some(w)` aktiviert Sliding-Window-Attention und begrenzt den KV-Cache auf die letzten **`w`** Zeitschritte pro Layer.
 - **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, Pre-LayerNorm (mit γ/β) + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head` nach finaler LayerNorm (ebenfalls γ/β).
-- **`causal_attention` / `attention_with_additive_mask` / `attention_single_query`:** Skaliertes Dot-Product; `causal_attention` mit unterer Dreiecksmaske; `attention_with_additive_mask` für benutzerdefinierte additive Score-Masken (z. B. **FIM** über `fim_additive_mask`). `attention_single_query`: ein Query pro Head-Zeile gegen die volle Key-/Value-Historie (KV-Cache-Decode). Ohne KV-Cache sind bei `attention_single_query` alle Keys „Vergangenheit“.
-- **FIM (Fill-in-the-Middle):** Sequenz als `[prefix][middle][suffix]` mit expliziten Längen; **`MiniGpt::forward_fim`** / **`TrainableMiniGpt::forward_fim`**. Training: **`Variable::cross_entropy_next_token_subset`** mit **`fim_middle_prediction_positions`** — nicht autoregressives „generate“, kein Produktanspruch für IDE-Code-Completion; **`max_seq`** begrenzt Positions-Einbettungen wie beim normalen Forward.
+- **`causal_attention` / `causal_attention_windowed` / `attention_with_additive_mask` / `attention_single_query`:** Skaliertes Dot-Product; `causal_attention` bzw. `causal_attention_windowed` für kausales bzw. Sliding-Window-Verhalten; `attention_with_additive_mask` für benutzerdefinierte additive Score-Masken (z. B. **FIM** über `fim_additive_mask`). `attention_single_query`: ein Query pro Head-Zeile gegen die Key-/Value-Historie (KV-Cache-Decode; mit **`attention_window`** nur die letzten `w` Keys). **FIM-Forward** (`forward_fim`) nutzt weiterhin die volle additive Maske und **kein** `attention_window`.
+- **FIM (Fill-in-the-Middle):** Sequenz als `[prefix][middle][suffix]` mit expliziten Längen; **`MiniGpt::forward_fim`** / **`TrainableMiniGpt::forward_fim`**. Inferenz-Hilfen: **`fim_next_logit_timestep`**, **`generate_fim_middle_from_ids`** (iterativ, ohne KV-Cache). Training: **`Variable::cross_entropy_next_token_subset`** mit **`fim_middle_prediction_positions`** — nicht autoregressives „generate“, kein Produktanspruch für IDE-Code-Completion; **`max_seq`** begrenzt Positions-Einbettungen wie beim normalen Forward.
 - **`generate` / `generate_from_ids` / `generate_from_ids_with_callback` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt den Byte-Tokenizer; `generate_from_ids` arbeitet auf beliebigen Token-IDs (z. B. nach `Gpt2Tokenizer::encode`). **`generate_from_ids_with_callback`** ruft nach jedem neuen Token einen Callback auf (Rückgabe `false` bricht ab) — für inkrementelle Anzeige oder Offline-Streaming **ohne** HTTP. **Prefill** + **KV-Cache** wie oben. Bei `max_tokens == 0`: `generate` decodiert nur den Prompt; `generate_from_ids` gibt die Prompt-IDs unverändert zurück (ohne Forward).
-- **Kontextlänge und Speicher:** `max_seq` begrenzt die Positions-Einbettungen; längere absolute Indizes werden intern gekappt — für sehr lange Kontexte lieber kleineres Modell / kürzere Fenster planen. Voller Forward ohne KV-Cache: Attention grob **O(L²)** in Zeit und Speicher ([`attention.rs`](../rusty_ai_llm/src/attention.rs)). Mit KV-Cache wächst der Speicher bei Generierung **linear** mit der bisherigen Sequenzlänge; es gibt **kein** Sliding-Window / Flash-Attention in dieser Referenzimplementierung.
+- **Kontextlänge und Speicher:** `max_seq` begrenzt die Positions-Einbettungen; längere absolute Indizes werden intern gekappt — für sehr lange Kontexte lieber kleineres Modell / kürzere Fenster planen. Kausaler Attention-Forward (ohne FIM-Maske) ist **zeilenweise** umgesetzt (keine volle materialisierte `L×L`-Score-Matrix); FIM / freie Masken nutzen weiterhin die klassische `matmul`-Form ([`attention.rs`](../rusty_ai_llm/src/attention.rs)). Mit KV-Cache wächst der Speicher bei Generierung **linear**, sofern **`attention_window`** nicht gesetzt ist; **`Some(w)`** begrenzt die gespeicherte Historie (**`truncate_last_along_seq`**, **`slice_along_seq`**). CUDA-Flash-Attention ist **nicht** eingebunden; **`rusty_ai_backend_candle`** (Tier-1-Tests optional) dient als separater Matmul-Pfad.
 - **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
 - **Weitere API:** `MiniGpt::embed_token_at(id, pos)` — kombinierte Token- und Positionszeile für einen Zeitschritt, Shape `(1, 1, d_model)`; wird intern für Decode-Schritte genutzt.
 
@@ -124,14 +124,15 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 
 #### Phase 4 (optional): Fine-Tuning, DPO/Preference — außerhalb des Rust-Workspaces
 
-**Abgrenzung:** SFT, **DPO**, RLHF und ähnliches Alignment laufen in diesem Repo **nicht** als vollständiger Trainer; üblich sind **Python** + Hugging Face (`transformers`, **TRL** für DPO/Preference-Datensätze). Das RustyAi-Workspace liefert **Inferenz** und **RustyAi-eigene Checkpoints** zum Einbinden.
+**Abgrenzung:** **Phase 4** ist die **Ausnahme** zur sonstigen Rust-Ausrichtung des Workspaces: Für SFT, **DPO**, RLHF und ähnliches Alignment ist **Python** ausdrücklich **erlaubt und üblich** — typisch **Hugging Face** (`transformers`, **TRL** für DPO/Preference) auf eurer Maschine, in einer VM oder einem **separaten Repo**; der Trainings-/Export-Code gehört **nicht** zum RustyAi-Pflichtumfang und wird hier **nicht** mitgeliefert. In diesem Repository gibt es **keinen** eingecheckten Python-Trainer und kein verpflichtendes Alignment-Training — nur die folgende **Dokumentations-Checkliste** und Rust-**Inferenz**-APIs sowie das **RustyAi-Checkpoint-Format** (siehe **Checkpoints** und **GPT-2-`safetensors`** oben).
 
-**Empfohlener Ablauf (Checkliste):**
+**Empfohlener Ablauf (Checkliste — reproduzierbar als Dokumentationspfad, kein `cargo test`-Pflicht):**
 
-1. **Daten** vorbereiten (Prompt/Antwort-Paare oder Preference-Paare je nach Methode).
-2. **Training** in Python/HF ausführen; Gewichte im passenden Format exportieren (**`safetensors`**).
-3. **In RustyAi laden:** Wenn die Architektur zu HF-GPT-2-kompatiblen Gewichten passt: [`load_minigpt_from_gpt2_safetensors`](../rusty_ai_llm/src/gpt2_hf.rs) + passende [`MiniGptConfig`](../rusty_ai_llm/src/model.rs). Für **eigene RustyAi-Checkpoints**: [`save_minigpt_checkpoint`](../rusty_ai_llm/src/checkpoint.rs) / [`load_minigpt_checkpoint`](../rusty_ai_llm/src/checkpoint.rs) (Format `config.json` + `model.safetensors` im RustyAi-Schema).
-4. **Kein** verpflichtendes Rust-Crate für DPO im Workspace — nur wenn ihr bewusst **Rust-only**-Training wollt (hoher Aufwand).
+- [ ] **Daten** vorbereiten (z. B. Prompt/Antwort-Paare für SFT oder Preference-Paare je nach Methode).
+- [ ] **Training/Alignment** ausführen (eigenes Repo, VM oder Ordner): **Phase 4 — hier ist Python erlaubt**; typisch **Python/HF** mit `transformers` und bei DPO/Preference **TRL**. Kein mitgelieferter Trainer im RustyAi-Clone — ihr führt die Skripte **lokal/extern** aus.
+- [ ] **Export:** Gewichte als **`safetensors`** (oder anderes zu den Lade-APIs passendes Format) sichern; bei Anschluss an HF-GPT-2/BPE typisch `model.safetensors` im Modellordner, **dort auch** `tokenizer.json` für [`Gpt2Tokenizer`](../rusty_ai_llm/src/gpt2_tokenizer.rs) (Feature **`gpt2-bpe`**).
+- [ ] **In RustyAi laden:** Architektur **HF-GPT-2-kompatibel** → [`load_minigpt_from_gpt2_safetensors`](../rusty_ai_llm/src/gpt2_hf.rs) + passende [`MiniGptConfig`](../rusty_ai_llm/src/model.rs). **RustyAi-Schema** (`config.json` + `model.safetensors`) → [`load_minigpt_checkpoint`](../rusty_ai_llm/src/checkpoint.rs) / [`load_minigpt_checkpoint_bytes`](../rusty_ai_llm/src/checkpoint.rs); ein **eigenes** Exportformat nur, wenn es zur Architektur und zu diesen APIs passt (Export-Code **außerhalb** dieses Repos).
+- [ ] **Kein** neues Rust-Crate für DPO/RLHF im Workspace planen — es sei denn, ihr bewusst wollt **Rust-only**-Training (hoher Aufwand).
 
 Siehe [ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md), Phase 4.
 
@@ -147,7 +148,14 @@ Siehe [ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md), Phase 4.
 
 **Abgrenzung zum LM-Training:** [`TrainableMiniGpt`](../rusty_ai_llm/src/trainable.rs) nutzt **`rusty_ai_core::Tensor`** und **`rusty_ai_autograd::Variable`** auf der CPU. Candle arbeitet mit **eigenen** Tensoren und einem **anderen** Graphen — es gibt **keinen** Drop-in-Ersatz für `TrainableMiniGpt` und kein end-to-end gemeinsames Training im Workspace. Sinnvoll sind: Matmul/FP8/All-Reduce als Bausteine; optional ein **Forward-only**-Vergleich (Gewichte aus `MiniGpt` einmal nach `f32`-Puffern kopieren, z. B. für Benchmarks). Vollständiges Training in Candle wäre ein separates Projekt.
 
-**Optionaler Brückentest:** `cargo test -p rusty_ai_backend_candle -- --ignored` — vergleicht eine kleine `w_q`-Matrix aus [`MiniGpt::random`](../rusty_ai_llm/src/model.rs) mit `matmul_f32` auf CPU-Candle (siehe [`README`](../rusty_ai_backend_candle/README.md)).
+**Stufen (Doku-Konvention):**
+
+| Stufe | Inhalt |
+| ----- | ------ |
+| **Tier 1** | Gewichte / Teil-Forward (z. B. eine Matrix oder LM-Head) gegen Candle-CPU-`matmul`; **kein** gemeinsamer Gradient mit `Variable`. |
+| **Tier 2** | Eigenes Modell in Candle inkl. Training/Optimizer — **nicht** Bestandteil des RustyAi-Kernpfads. |
+
+**Optionale Brückentests:** `cargo test -p rusty_ai_backend_candle -- --ignored` — u. a. `w_q`-Matmul und LM-Head-Linear gegen `matmul_f32` auf CPU-Candle (siehe [`rusty_ai_backend_candle/README.md`](../rusty_ai_backend_candle/README.md) und `lib.rs` des Crates).
 
 ---
 
@@ -292,11 +300,11 @@ Ausführliche Beispielbefehle: Abschnitt **2.8**, Phase-3-Kurzüberblick im [Age
 
 ## 4. Grenzen und bekannte Einschränkungen
 
-- **Training:** Der Kern (`TrainableMiniGpt`, Optimierer) läuft auf der **CPU**. GPU-Training über Candle ist nicht 1:1 angebunden; Candle dient als **zusätzlicher** Pfad für Matmul/Quantization/Verteilungs-Experimente.
+- **Training:** Der Kern (`TrainableMiniGpt`, Optimierer) läuft auf der **CPU**. GPU-Training über Candle ist nicht 1:1 angebunden; Candle dient als **zusätzlicher** Pfad für Matmul/Quantization/Verteilungs-Experimente (Tier-1-Paritätstests optional in `rusty_ai_backend_candle`, kein gemeinsamer Autograd-Graph mit `Variable`).
 - **Autograd** deckt die implementierten Ops ab; erweiterte Ops erfordern eigene `Op`-Varianten und Ableitungen.
 - **Broadcasting im Autograd** ist nicht vollständig für alle Kombinationen in jedem Op abgebildet; `BiasAdd` ist für den üblichen Linear-Bias-Pfad `(batch, n) + (1, n)` gedacht; `Add`/`Mul` reduzieren Gradienten bei Broadcast auf die Eltern-Shapes.
 - **LayerNorm:** `MiniGpt` nutzt affine LayerNorm (`layer_norm_affine`); die Basisfunktion `layer_norm` bleibt für Normierung ohne γ/β nutzbar. Extern gespeicherte Gewichte ohne die neuen γ/β-Tensoren sind nicht abwärtskompatibel.
-- **KV-Cache:** Kein Paging oder Ringpuffer; bei langen Generierungen wächst der Speicher pro Schritt (Konkatenation). Batch-Größe größer als 1 für LLM-Pfade ist nicht der Fokus der API.
+- **KV-Cache:** Optional begrenzt durch **`MiniGptConfig::attention_window`** (Sliding-Window); ohne diese Option wächst der Cache bei langen Generierungen pro Schritt (Konkatenation). Batch-Größe größer als 1 für LLM-Pfade ist nicht der Fokus der API.
 
 ---
 
@@ -319,13 +327,15 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **Broadcasting** | Automatische Anpassung kleinerer Formen an gemeinsame Ausgabeform bei elementweisen Ops. |
 | **Causal / masked attention** | Attention nur auf vergangene und aktuelle Tokens (untere Dreiecksmatrix in den Scores). |
 | **Decoder-only** | Transformer, der nur „nach links“ sieht (wie GPT), ohne Encoder. |
-| **KV-Cache** | Zwischengespeicherte Key- und Value-Tensoren pro Schicht, um bei autoregressiver Generierung nicht die komplette bisherige Sequenz erneut zu verarbeiten. |
+| **KV-Cache** | Zwischengespeicherte Key- und Value-Tensoren pro Schicht, um bei autoregressiver Generierung nicht die komplette bisherige Sequenz erneut zu verarbeiten. Mit **`attention_window`** optional auf die letzten **`w`** Zeitschritte begrenzt (Sliding-Window). |
 | **LayerNorm (affine)** | Normierung über die letzte Dimension plus elementweise **γ** (Skalierung, Initialisierung typisch Einsen) und **β** (Verschiebung, typisch Nullen); in RustyAi: `layer_norm_affine` / `Variable::layer_norm_affine`. Ohne γ/β: nur `layer_norm`. |
 | **Prefill** | Erster Inferenzschritt über den ganzen Prompt; füllt den KV-Cache und liefert Logits für die letzte Prompt-Position. |
 | **top-p (Nucleus)** | Sampling aus der kleinsten Menge höchster Wahrscheinlichkeiten, deren Summe ≥ p. |
 | **TrainableMiniGpt** | Decoder-only-Modell mit `Variable`-Gewichten; Forward wie `MiniGpt`, für Training mit `backward` + Optimierer. |
 | **Next-Token-Cross-Entropy** | Mittlerer negativer Log-Likelihood über Positionen `t`, die `token[t+1]` aus `logits[0,t,:]` vorhersagen (`Variable::cross_entropy_next_token`). |
-| **FIM (Fill-in-the-Middle)** | Trainingslayout `[prefix][middle][suffix]` ohne neue Vokabel-IDs; Attention über `fim_additive_mask`; Forward [`MiniGpt::forward_fim`](../rusty_ai_llm/src/model.rs); Loss nur in der Mitte über `Variable::cross_entropy_next_token_subset` + `fim_middle_prediction_positions`. Kein KV-Cache für FIM in der Referenz-API. |
+| **FIM (Fill-in-the-Middle)** | Trainingslayout `[prefix][middle][suffix]` ohne neue Vokabel-IDs; Attention über `fim_additive_mask`; Forward [`MiniGpt::forward_fim`](../rusty_ai_llm/src/model.rs); Loss nur in der Mitte über `Variable::cross_entropy_next_token_subset` + `fim_middle_prediction_positions`. Inferenz-Hilfen: `generate_fim_middle_from_ids`, `fim_next_logit_timestep`. Kein KV-Cache für FIM in der Referenz-API. |
+| **Sliding-Window-Attention** | Optional über `MiniGptConfig::attention_window = Some(w)`; kausale Attention nur über ein Fenster der Länge `w` (und entsprechend begrenzter KV-Cache). FIM-Forward (`forward_fim`) nutzt weiterhin die volle FIM-Maske, nicht dieses Fenster. |
+| **Candle Tier 1 / Tier 2** | **Tier 1:** Forward- oder Matmul-Parität (z. B. LM-Head) gegen Candle-CPU — siehe §2.6. **Tier 2:** eigenes Candle-Training — außerhalb des Kernpfads. |
 | **Variable** | Knoten mit Daten und optional Gradient im Autograd-Graphen. |
 | **LlmBackend** | Trait für eine synchrone Chat-/Completion-Anfrage (`complete`); Implementierungen: z. B. HTTP-Client oder Fake für Tests. |
 | **ToolInvocation** | Konkretes, ausführbares Tool (`read_file`, `write_file`, …) nach Parsing aus `ModelToolCall`. |
@@ -344,7 +354,7 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). **Phase 4 (optional):** Fine-Tuning/DPO-Prozess, `generate_from_ids_with_callback`, **FIM** — Abschnitt **2.5** (`rusty_ai_llm`); Candle-Backend Abschnitt **2.6**. Roadmap: [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). **Phase 4 (optional):** Fine-Tuning/DPO (Python/HF/TRL **ausnahmsweise** erlaubt, siehe Checkliste), `generate_from_ids_with_callback`, **FIM** — Abschnitt **2.5** (`rusty_ai_llm`); Candle-Backend Abschnitt **2.6**. Roadmap: [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
 
 ---
 

@@ -7,6 +7,10 @@
 //! **Training:** There is **no** shared autograd graph with [`TrainableMiniGpt`](https://docs.rs/rusty_ai_llm/latest/rusty_ai_llm/struct.TrainableMiniGpt.html)
 //! (CPU `Variable` + `rusty_ai_core::Tensor`). This crate exposes **standalone** ops (matmul, FP8, all-reduce helpers).
 //! For LM training, use the CPU path in `rusty_ai_llm` / `rusty_ai`; use Candle for experiments or forward-only weight checks.
+//!
+//! **Tier 1 (E2E light):** optional `#[ignore]`-Tests vergleichen Teil-Forwards (z. B. `lm_head`-Linear) mit
+//! `rusty_ai_core` / `MiniGpt`-Gewichten — kein gemeinsamer Backward.
+//! **Tier 2:** ein vollständiges Training nur in Candle wäre ein eigenes Milestone (eigenes Modell + Optimizer).
 
 mod device;
 mod distributed;
@@ -40,6 +44,7 @@ mod minigpt_weight_bridge {
             n_layers: 1,
             ffn_dim: 32,
             max_seq: 32,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let w = &m.blocks[0].w_q;
@@ -61,5 +66,61 @@ mod minigpt_weight_bridge {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(diff < 1e-4, "max abs diff {}", diff);
+    }
+}
+
+#[cfg(test)]
+mod minigpt_lm_head_candle {
+    use candle_core::Device;
+
+    use rusty_ai_core::Tensor;
+    use rusty_ai_llm::{linear_3d, MiniGpt, MiniGptConfig};
+
+    use crate::matmul_f32;
+
+    #[test]
+    #[ignore = "optional Tier-1: LM-Head linear vs Candle CPU matmul"]
+    fn minigpt_lm_head_matches_candle_cpu() {
+        let mut seed = 3u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 32,
+            d_model: 16,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 32,
+            max_seq: 16,
+            attention_window: None,
+        };
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let seq = 5usize;
+        let d = cfg.d_model;
+        let v = cfg.vocab_size;
+        let mut hid = vec![0.0f32; seq * d];
+        for (i, slot) in hid.iter_mut().enumerate() {
+            *slot = (i as f32) * 0.02 - 0.3;
+        }
+        let h = Tensor::from_vec(hid, vec![1, seq, d]).unwrap();
+        let logits_ref = linear_3d(&h, &m.lm_head_w, &m.lm_head_b).unwrap();
+
+        let dev = Device::Cpu;
+        let rows = seq;
+        let got = matmul_f32(
+            &dev,
+            h.data(),
+            [rows, d],
+            m.lm_head_w.data(),
+            [d, v],
+        )
+        .unwrap();
+        let b = m.lm_head_b.data();
+        let mut diff_max = 0.0f32;
+        for row in 0..rows {
+            for j in 0..v {
+                let a = logits_ref.data()[row * v + j];
+                let c = got[row * v + j] + b[j];
+                diff_max = diff_max.max((a - c).abs());
+            }
+        }
+        assert!(diff_max < 1e-4, "max abs diff {}", diff_max);
     }
 }

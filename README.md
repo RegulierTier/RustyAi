@@ -48,7 +48,7 @@ Abhängigkeiten und Features pro Crate: jeweils `README.md` im Ordner sowie [**H
 
 | Ressource | Inhalt |
 | --------- | ------ |
-| [**`docs/HANDBUCH.md`**](docs/HANDBUCH.md) | Architektur, alle Crates, typische Abläufe (MLP, Mini-GPT, FIM, Agent, Checkpoints) |
+| [**`docs/HANDBUCH.md`**](docs/HANDBUCH.md) | Architektur, alle Crates, typische Abläufe (MLP, Mini-GPT, **FIM**, **Sliding-Window**/`attention_window`, Agent, Checkpoints, Candle Tier 1/2) |
 | [**`docs/README.md`**](docs/README.md) | Index der Dokumentationsdateien und Crate-READMEs |
 | [**`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`**](docs/ARCHITEKTUR_IDE_ROADMAP_B.md) | IDE-nah: Ziele, Roadmap (Pfad B) |
 | [**`rusty_ai_llm/README.md`**](rusty_ai_llm/README.md) | LLM-API, FIM, Features `gpt2-bpe` / `hf-hub`, **lokales Mini-Bundle** |
@@ -56,6 +56,8 @@ Abhängigkeiten und Features pro Crate: jeweils `README.md` im Ordner sowie [**H
 | [**`rusty_ai_agent/README.md`**](rusty_ai_agent/README.md) | Agent, HTTP, Policies, Beispiele |
 
 API-Details: `cargo doc -p rusty_ai --no-deps --open` (optional mit `--features …`).
+
+**LLM kurz:** Autoregression mit KV-Cache (`generate_from_ids`, …); **FIM** (Fill-in-the-Middle) mit `forward_fim` / `generate_fim_middle_from_ids` — Details und Limits in [`rusty_ai_llm/README.md`](rusty_ai_llm/README.md) und [Handbuch §2.5](docs/HANDBUCH.md). Optional **`MiniGptConfig::attention_window`** für längere Kontexte (Sliding-Window + begrenzter KV-Cache). Candle: nur separater Matmul-/FP8-Pfad, kein gemeinsames Training mit `TrainableMiniGpt` ([§2.6](docs/HANDBUCH.md)).
 
 ---
 

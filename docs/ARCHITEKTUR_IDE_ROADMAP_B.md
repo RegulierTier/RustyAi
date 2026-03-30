@@ -146,8 +146,13 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 ### Phase 4 — Vertiefung KI (optional)
 
-- [x] **Feintuning / DPO/Preference (Prozess):** Außerhalb des Rust-Workspaces (typisch Python/HF, TRL); Checkliste und Import-Pfad in [HANDBUCH.md](HANDBUCH.md) (Unterabschnitt unter **`rusty_ai_llm`**, Phase 4). RustyAi bleibt für **Inferenz** und **eigene Checkpoints**; kein Pflicht-DPO-Crate im Repo.
-- [x] **RustyAi-spezifisch — Referenz umgesetzt:** [`generate_from_ids_with_callback`](../rusty_ai_llm/src/generate.rs) (tokenweiser Callback, KV-Cache); **Dokumentation** zu `max_seq`, Speicher **O(L²)** bzw. linearem KV-Wachstum in [HANDBUCH.md](HANDBUCH.md) und [`rusty_ai_llm/README.md`](../rusty_ai_llm/README.md). Weitere TODOs in den Crates (FIM, Candle-Training-Loop, …) bleiben **optional** bis expliziter Auftrag.
+- [x] **Feintuning / DPO/Preference (Prozess):** Außerhalb des Rust-Workspaces; **Phase 4** erlaubt **ausnahmsweise Python** (typisch HF, TRL). Checkliste und Import-Pfad in [HANDBUCH.md](HANDBUCH.md) (Unterabschnitt unter **`rusty_ai_llm`**, Phase 4). RustyAi bleibt für **Inferenz** und **eigene Checkpoints**; kein Pflicht-DPO-Crate im Repo.
+
+Die vollständige **Schritt-für-Schritt-Checkliste** (Daten → Trainer → Export `safetensors` → Laden in RustyAi) steht dort unter **„Phase 4 (optional): Fine-Tuning, DPO/Preference“**. **Phase 4** ist die **Ausnahme**, bei der **Python** (HF, TRL) für Fine-Tuning/DPO/Export **ausdrücklich vorgesehen** ist — typisch **außerhalb** dieses Repos oder lokal; das RustyAi-Repository **liefert** keinen eingecheckten Trainer mit, sondern **Dokumentation** und Rust-**Lade-APIs**.
+
+- [x] **RustyAi-spezifisch — Referenz umgesetzt:** [`generate_from_ids_with_callback`](../rusty_ai_llm/src/generate.rs) (tokenweiser **Callback**, KV-Cache; **keine** Iterator-/Generator-API in dieser Referenz). **Dokumentation** zu `max_seq`, Speicher **O(L²)** bzw. linearem KV-Wachstum in [HANDBUCH.md](HANDBUCH.md) und [`rusty_ai_llm/README.md`](../rusty_ai_llm/README.md). Weitere TODOs in den Crates (FIM, Candle-Training-Loop, …) bleiben **optional** bis expliziter Auftrag.
+
+**Optional später (nicht Phase-4-Pflicht, kein YAML-Todo):** FIM-Erweiterungen, Candle/TrainableMiniGpt end-to-end, Flash-/Sliding-Attention — gebündelt und mit Abgrenzung im Abschnitt *„Optional später“* der [Phase-4-Roadmap](plans/phase_4_roadmap_31334fb6.plan.md#optional-später-kein-pflicht-todo-nur-bei-explizitem-auftrag).
 
 **Nächster Schritt (außerhalb Roadmap-Pflicht):** Produkt-Orchestrierung, größere Modelle, eigenes Training — siehe Kommentare/TODOs in `rusty_ai_core`, `rusty_ai_nn`, …
 

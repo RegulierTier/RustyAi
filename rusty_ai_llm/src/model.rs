@@ -5,10 +5,10 @@
 use rusty_ai_core::{add, Tensor, TensorError};
 use rusty_ai_nn::{gelu, glorot_uniform, layer_norm_affine, ones_scale, zeros_bias};
 
-use crate::attention::{attention_single_query, attention_with_additive_mask, causal_attention};
+use crate::attention::{attention_single_query, attention_with_additive_mask, causal_attention_windowed};
 use crate::fim::fim_additive_mask;
 use crate::heads::{merge_heads, split_heads};
-use crate::kv_cache::{concat_along_seq, KvCache, LayerKv};
+use crate::kv_cache::{concat_along_seq, truncate_last_along_seq, KvCache, LayerKv};
 use crate::linear_tensor::linear_3d;
 
 /// Last timestep of logits shaped `(1, seq, vocab)` (also works for `seq == 1`).
@@ -41,6 +41,8 @@ pub struct MiniGptConfig {
     pub n_layers: usize,
     pub ffn_dim: usize,
     pub max_seq: usize,
+    /// `Some(w)`: Sliding-Window-Attention (und KV-Cache) mit maximal `w` Keys pro Position; `None`: unbegrenzt kausal.
+    pub attention_window: Option<usize>,
 }
 
 impl Default for MiniGptConfig {
@@ -52,6 +54,7 @@ impl Default for MiniGptConfig {
             n_layers: 2,
             ffn_dim: 128,
             max_seq: 128,
+            attention_window: None,
         }
     }
 }
@@ -68,6 +71,7 @@ impl MiniGptConfig {
             n_layers: 1,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         }
     }
 
@@ -150,19 +154,25 @@ impl DecoderBlock {
     }
 
     /// Forward on `(batch, seq, d_model)`; returns same rank tensor.
-    pub fn forward(&self, x: &Tensor) -> Result<Tensor, TensorError> {
-        self.forward_prefill_optional(x, None)
+    pub fn forward(&self, x: &Tensor, attn_window: Option<usize>) -> Result<Tensor, TensorError> {
+        self.forward_prefill_optional(x, None, attn_window)
     }
 
     /// Like [`Self::forward`], but stores keys/values after head split for KV-cache decoding.
-    pub fn forward_prefill(&self, x: &Tensor, kv: &mut LayerKv) -> Result<Tensor, TensorError> {
-        self.forward_prefill_optional(x, Some(kv))
+    pub fn forward_prefill(
+        &self,
+        x: &Tensor,
+        kv: &mut LayerKv,
+        attn_window: Option<usize>,
+    ) -> Result<Tensor, TensorError> {
+        self.forward_prefill_optional(x, Some(kv), attn_window)
     }
 
     fn forward_prefill_optional(
         &self,
         x: &Tensor,
         kv: Option<&mut LayerKv>,
+        attn_window: Option<usize>,
     ) -> Result<Tensor, TensorError> {
         let s = x.shape();
         let batch = s[0];
@@ -183,9 +193,23 @@ impl DecoderBlock {
         if let Some(kv) = kv {
             kv.k = Some(kh.clone());
             kv.v = Some(vh.clone());
+            if let Some(w) = attn_window {
+                if w > 0 {
+                    if let Some(ref mut k) = kv.k {
+                        if k.shape()[1] > w {
+                            *k = truncate_last_along_seq(k, w)?;
+                        }
+                    }
+                    if let Some(ref mut v) = kv.v {
+                        if v.shape()[1] > w {
+                            *v = truncate_last_along_seq(v, w)?;
+                        }
+                    }
+                }
+            }
         }
 
-        let attn = causal_attention(&qh, &kh, &vh, dh)?;
+        let attn = causal_attention_windowed(&qh, &kh, &vh, dh, attn_window)?;
         let merged = merge_heads(&attn, batch, h)?;
         let proj = linear_3d(&merged, &self.w_o, &self.b_o)?;
 
@@ -232,7 +256,12 @@ impl DecoderBlock {
     }
 
     /// Single new token `(1, 1, d_model)` with existing KV; updates `kv` in place.
-    pub fn forward_step(&self, x: &Tensor, kv: &mut LayerKv) -> Result<Tensor, TensorError> {
+    pub fn forward_step(
+        &self,
+        x: &Tensor,
+        kv: &mut LayerKv,
+        attn_window: Option<usize>,
+    ) -> Result<Tensor, TensorError> {
         let s = x.shape();
         if s != [1, 1, self.n_heads * self.d_head] {
             return Err(TensorError::Shape(
@@ -255,7 +284,7 @@ impl DecoderBlock {
         let kh_new = split_heads(&k_new, h, dh)?;
         let vh_new = split_heads(&v_new, h, dh)?;
 
-        let (k_full, v_full) = match (&kv.k, &kv.v) {
+        let (mut k_full, mut v_full) = match (&kv.k, &kv.v) {
             (Some(kp), Some(vp)) => {
                 let kc = concat_along_seq(kp, &kh_new)?;
                 let vc = concat_along_seq(vp, &vh_new)?;
@@ -272,7 +301,17 @@ impl DecoderBlock {
             }
         };
 
-        let attn = attention_single_query(&qh, &k_full, &v_full, dh)?;
+        if let Some(w) = attn_window {
+            if w > 0 {
+                let sl = k_full.shape()[1];
+                if sl > w {
+                    k_full = truncate_last_along_seq(&k_full, w)?;
+                    v_full = truncate_last_along_seq(&v_full, w)?;
+                }
+            }
+        }
+
+        let attn = attention_single_query(&qh, &k_full, &v_full, dh, attn_window)?;
         kv.k = Some(k_full);
         kv.v = Some(v_full);
         let merged = merge_heads(&attn, batch, h)?;
@@ -390,9 +429,10 @@ impl MiniGpt {
         cache.clear();
         let tok = self.embed_tokens(token_ids)?;
         let pos = self.embed_positions(token_ids.len())?;
+        let w = self.cfg.attention_window;
         let mut h = add(&tok, &pos)?;
         for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
-            h = block.forward_prefill(&h, kv)?;
+            h = block.forward_prefill(&h, kv, w)?;
         }
         let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
@@ -414,9 +454,10 @@ impl MiniGpt {
                 },
             ));
         }
+        let w = self.cfg.attention_window;
         let mut h = self.embed_token_at(token_id, position)?;
         for (block, kv) in self.blocks.iter().zip(cache.layers.iter_mut()) {
-            h = block.forward_step(&h, kv)?;
+            h = block.forward_step(&h, kv, w)?;
         }
         let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         let logits = linear_3d(&h, &self.lm_head_w, &self.lm_head_b)?;
@@ -430,9 +471,10 @@ impl MiniGpt {
         }
         let tok = self.embed_tokens(token_ids)?;
         let pos = self.embed_positions(token_ids.len())?;
+        let w = self.cfg.attention_window;
         let mut h = add(&tok, &pos)?;
         for block in &self.blocks {
-            h = block.forward(&h)?;
+            h = block.forward(&h, w)?;
         }
         let h = layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         linear_3d(&h, &self.lm_head_w, &self.lm_head_b)
@@ -499,6 +541,7 @@ mod tests {
             n_layers: 2,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let n_layers = cfg.n_layers;
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
@@ -519,6 +562,32 @@ mod tests {
             n_layers: 2,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
+        };
+        let n_layers = cfg.n_layers;
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let prefix = vec![1usize, 5, 9];
+        let t = 19usize;
+        let full: Vec<usize> = prefix.iter().copied().chain(std::iter::once(t)).collect();
+
+        let mut cache = KvCache::new(n_layers);
+        m.forward_prefill(&prefix, &mut cache).unwrap();
+        let step = m.forward_decode_step(t, prefix.len(), &mut cache).unwrap();
+        let last = m.forward_last(&full).unwrap();
+        assert_vec_close(step.data(), last.data(), 1e-4);
+    }
+
+    #[test]
+    fn kv_sliding_window_matches_full_when_window_covers_sequence() {
+        let mut seed = 7u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 64,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 2,
+            ffn_dim: 64,
+            max_seq: 64,
+            attention_window: Some(64),
         };
         let n_layers = cfg.n_layers;
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
@@ -543,6 +612,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 32,
             max_seq: 32,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         assert_eq!(m.forward(&[]).unwrap_err(), TensorError::EmptyTensor);
@@ -563,6 +633,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 64,
             max_seq: 32,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let ids = vec![1usize, 2, 3];

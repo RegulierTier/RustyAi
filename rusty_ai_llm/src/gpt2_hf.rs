@@ -483,6 +483,7 @@ mod gpt2_tests {
             n_layers: 2,
             ffn_dim: 32,
             max_seq: 16,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let d = state_dict(&m);
@@ -605,6 +606,7 @@ mod gpt2_tests {
             n_layers: 1,
             ffn_dim: 16,
             max_seq: 8,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let d = state_dict(&m);

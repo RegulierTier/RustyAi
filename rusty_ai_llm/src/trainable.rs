@@ -82,7 +82,11 @@ impl DecoderBlockTrainable {
         }
     }
 
-    pub fn forward(&self, x: &Rc<Variable>) -> Result<Rc<Variable>, TensorError> {
+    pub fn forward(
+        &self,
+        x: &Rc<Variable>,
+        attn_window: Option<usize>,
+    ) -> Result<Rc<Variable>, TensorError> {
         let xd = x.data();
         let s = xd.shape();
         let batch = s[0];
@@ -98,7 +102,7 @@ impl DecoderBlockTrainable {
         let kh = Variable::split_heads(&k, batch, h, dh)?;
         let vh = Variable::split_heads(&v, batch, h, dh)?;
 
-        let attn = causal_attention_var(&qh, &kh, &vh, dh)?;
+        let attn = causal_attention_var(&qh, &kh, &vh, dh, attn_window)?;
         let merged = Variable::merge_heads(&attn, batch, h)?;
         let proj = linear_3d_var(&merged, &self.w_o, &self.b_o)?;
 
@@ -204,8 +208,9 @@ impl TrainableMiniGpt {
         let pos_ids: Vec<usize> = (0..seq).map(|t| t.min(max_pos)).collect();
         let pos = Variable::embedding_gather(&self.pos_embed, &pos_ids)?;
         let mut h = Variable::add(&tok, &pos)?;
+        let w = self.cfg.attention_window;
         for block in &self.blocks {
-            h = block.forward(&h)?;
+            h = block.forward(&h, w)?;
         }
         let h = Variable::layer_norm_affine(&h, &self.ln_f_gamma, &self.ln_f_beta, 1e-5)?;
         linear_3d_var(&h, &self.lm_head_w, &self.lm_head_b)
@@ -314,6 +319,7 @@ mod tests {
             n_layers: 2,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let tv = TrainableMiniGpt::from_mini_gpt(&m).unwrap();
@@ -334,6 +340,7 @@ mod tests {
             n_layers: 2,
             ffn_dim: 64,
             max_seq: 64,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let tv = TrainableMiniGpt::from_mini_gpt(&m).unwrap();
@@ -356,6 +363,7 @@ mod tests {
             n_layers: 1,
             ffn_dim: 32,
             max_seq: 32,
+            attention_window: None,
         };
         let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let tv = TrainableMiniGpt::from_mini_gpt(&m).unwrap();
@@ -374,5 +382,26 @@ mod tests {
         backward(&loss).unwrap();
         let gw = tv.lm_head_w.grad().unwrap();
         assert!(gw.data().iter().any(|&x| x.abs() > 1e-8));
+    }
+
+    #[test]
+    fn trainable_forward_sliding_matches_mini_gpt() {
+        let mut seed = 101u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 48,
+            d_model: 24,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 48,
+            max_seq: 32,
+            attention_window: Some(20),
+        };
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
+        let tv = TrainableMiniGpt::from_mini_gpt(&m).unwrap();
+        let ids: Vec<usize> = (0..14).map(|i| (i * 3 + 2) % cfg.vocab_size).collect();
+        let ref_t = m.forward(&ids).unwrap();
+        let logits_v = tv.forward(&ids).unwrap();
+        let d = max_abs_diff(ref_t.data(), logits_v.data().data());
+        assert!(d < 5e-3, "max abs diff {}", d);
     }
 }

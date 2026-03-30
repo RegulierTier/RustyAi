@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         n_layers: 1,
         ffn_dim: 64,
         max_seq: 32,
+        attention_window: None,
     };
     let m = MiniGpt::random(cfg, &mut seed)?;
     let model = TrainableMiniGpt::from_mini_gpt(&m)?;

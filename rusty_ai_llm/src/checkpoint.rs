@@ -34,6 +34,10 @@ pub struct MiniGptConfigFile {
     pub n_inner: usize,
     #[serde(rename = "n_positions")]
     pub n_positions: usize,
+    /// Optional: Sliding-Window-Länge (wie [`MiniGptConfig::attention_window`]).
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention_window: Option<usize>,
 }
 
 impl From<&MiniGptConfig> for MiniGptConfigFile {
@@ -46,6 +50,7 @@ impl From<&MiniGptConfig> for MiniGptConfigFile {
             n_head: c.n_heads,
             n_inner: c.ffn_dim,
             n_positions: c.max_seq,
+            attention_window: c.attention_window,
         }
     }
 }
@@ -67,6 +72,11 @@ impl TryFrom<MiniGptConfigFile> for MiniGptConfig {
                 "n_embd must be positive and divisible by n_head".into(),
             ));
         }
+        if f.attention_window == Some(0) {
+            return Err(CheckpointError::InvalidConfig(
+                "attention_window must be None or >= 1".into(),
+            ));
+        }
         Ok(Self {
             vocab_size: f.vocab_size,
             d_model: f.n_embd,
@@ -74,6 +84,7 @@ impl TryFrom<MiniGptConfigFile> for MiniGptConfig {
             n_layers: f.n_layer,
             ffn_dim: f.n_inner,
             max_seq: f.n_positions,
+            attention_window: f.attention_window,
         })
     }
 }
@@ -482,6 +493,7 @@ mod checkpoint_tests {
             n_layers: 2,
             ffn_dim: 32,
             max_seq: 16,
+            attention_window: None,
         };
         let m1 = MiniGpt::random(cfg, &mut seed).unwrap();
         let bytes = minigpt_to_safetensors_bytes(&m1).unwrap();

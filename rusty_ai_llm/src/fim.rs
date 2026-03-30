@@ -79,6 +79,27 @@ pub fn fim_middle_prediction_positions(
     (start..=last_t).filter(|&t| t + 1 < seq_len).collect()
 }
 
+/// Logit-Zeilenindex `t` für die nächste Vorhersage im Mittel-Span, wenn bereits `num_filled`
+/// Token der Mitte (von links nach rechts) feststehen.
+///
+/// Die Zeile `logits[0, t, :]` wird wie bei [`fim_middle_prediction_positions`] für Next-Token genutzt
+/// (`token[t+1]`). **`num_filled == 0`:** erste Vorhersage in der Mitte; **`num_filled == middle_len`:**
+/// alle Mittel-Token sind gesetzt → `None`.
+///
+/// **KV-Cache:** Diese Referenz-API führt FIM ohne inkrementellen KV-Decode aus ([`crate::MiniGpt::forward_fim`]);
+/// für lange Füllsequenzen wird die Sequenz pro Schritt vollständig neu eingespeist (siehe
+/// [`crate::generate::generate_fim_middle_from_ids`]).
+pub fn fim_next_logit_timestep(
+    prefix_len: usize,
+    middle_len: usize,
+    num_filled: usize,
+) -> Option<usize> {
+    if middle_len == 0 || num_filled >= middle_len {
+        return None;
+    }
+    Some(prefix_len.saturating_sub(1) + num_filled)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +121,20 @@ mod tests {
     fn middle_positions_match_span() {
         let v = fim_middle_prediction_positions(2, 2, 6);
         assert_eq!(v, vec![1, 2]);
+    }
+
+    #[test]
+    fn next_logit_timestep_aligns_with_middle_positions() {
+        let prefix_len = 2usize;
+        let middle_len = 2usize;
+        let seq = 6usize;
+        let pos = fim_middle_prediction_positions(prefix_len, middle_len, seq);
+        for (k, &expected_t) in pos.iter().enumerate() {
+            assert_eq!(
+                fim_next_logit_timestep(prefix_len, middle_len, k),
+                Some(expected_t)
+            );
+        }
+        assert!(fim_next_logit_timestep(prefix_len, middle_len, middle_len).is_none());
     }
 }
