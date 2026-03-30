@@ -5,7 +5,7 @@ use crate::llm_backend::{
     ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend,
 };
 use crate::telemetry::LocalTelemetry;
-use crate::tool_parse::{
+use crate::tools::{
     tool_invocations_try_each, tool_parse_retry_instruction, ToolInvocationParseItem,
 };
 use crate::{LlmError, ToolInvocation};

@@ -1,7 +1,7 @@
 //! Autoregressive text generation and token sampling from logits.
 //!
-//! - TODO: streaming / callback-based decode for IDE-style consumers.
-//! - FIXME: `argmax` uses `partial_cmp`; tie-breaking is not IEEE-stable across platforms.
+//! - **Inkrementell / IDE:** [`generate_from_ids_with_callback`] liefert jeden neuen Token an einen Callback (Abbruch mit `false`).
+//! - Greedy `argmax` nutzt [`f32::total_cmp`] — deterministische Reihenfolge bei Gleichstand und NaN.
 
 use rusty_ai_core::{softmax, Tensor, TensorError};
 
@@ -12,7 +12,7 @@ use crate::tokenizer::ByteTokenizer;
 fn argmax(data: &[f32]) -> usize {
     data.iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(i, _)| i)
         .unwrap_or(0)
 }
@@ -108,6 +108,8 @@ pub fn sample_token(
 ///
 /// **Contract:** Each id must be `< model.cfg.vocab_size`. An **empty** `prompt_ids` with
 /// `max_tokens > 0` yields `TensorError::EmptyTensor` (prefill requires at least one token).
+///
+/// Siehe auch [`generate_from_ids_with_callback`] für tokenweises Streaming an einen Callback.
 pub fn generate_from_ids(
     model: &MiniGpt,
     prompt_ids: &[usize],
@@ -116,6 +118,32 @@ pub fn generate_from_ids(
     top_p: f32,
     seed: &mut u32,
 ) -> Result<Vec<usize>, TensorError> {
+    generate_from_ids_with_callback(
+        model,
+        prompt_ids,
+        max_tokens,
+        temperature,
+        top_p,
+        seed,
+        |_| true,
+    )
+}
+
+/// Wie [`generate_from_ids`], ruft aber nach **jedem** neu gesampelten Token `on_token(id)` auf.
+/// Liefert `false`, um die Generierung vorzeitig zu beenden (z. B. UI-Abbruch, Stoppkriterium).
+/// Der zuletzt erzeugte Token ist bereits in der Rückgabe-`Vec` enthalten.
+pub fn generate_from_ids_with_callback<F>(
+    model: &MiniGpt,
+    prompt_ids: &[usize],
+    max_tokens: usize,
+    temperature: f32,
+    top_p: f32,
+    seed: &mut u32,
+    mut on_token: F,
+) -> Result<Vec<usize>, TensorError>
+where
+    F: FnMut(usize) -> bool,
+{
     let mut ids = prompt_ids.to_vec();
     if max_tokens == 0 {
         return Ok(ids);
@@ -125,6 +153,9 @@ pub fn generate_from_ids(
     for i in 0..max_tokens {
         let next = sample_token(&logits, temperature, top_p, seed)?;
         ids.push(next);
+        if !on_token(next) {
+            break;
+        }
         if i + 1 < max_tokens {
             logits = model.forward_decode_step(next, ids.len() - 1, &mut cache)?;
         }
@@ -192,13 +223,68 @@ mod tests {
         let out = generate_from_ids(&model, &ids, 0, 1.0, 1.0, &mut 0u32).unwrap();
         assert_eq!(out, ids);
     }
-}
 
-/// Grep anchor for `unimplemented!` (planned API); not called from production code.
-#[cfg(test)]
-mod planned_unimplemented_markers {
-    #[allow(dead_code)]
-    fn _streaming_decode_stub() {
-        unimplemented!("TODO: streaming token generation (callback / async)");
+    #[test]
+    fn generate_from_ids_with_callback_matches_non_callback() {
+        let mut seed = 99u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 256,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 64,
+            max_seq: 64,
+        };
+        let model = MiniGpt::random(cfg, &mut seed).unwrap();
+        let prompt = ByteTokenizer::encode("x");
+        let mut s1 = 5u32;
+        let mut s2 = 5u32;
+        let full = generate_from_ids(&model, &prompt, 4, 0.9, 0.95, &mut s1).unwrap();
+        let mut seen = Vec::new();
+        let with_cb = generate_from_ids_with_callback(
+            &model,
+            &prompt,
+            4,
+            0.9,
+            0.95,
+            &mut s2,
+            |t| {
+                seen.push(t);
+                true
+            },
+        )
+        .unwrap();
+        assert_eq!(full, with_cb);
+        assert_eq!(seen, full[prompt.len()..]);
+    }
+
+    #[test]
+    fn generate_from_ids_with_callback_stops_early() {
+        let mut seed = 3u32;
+        let cfg = MiniGptConfig {
+            vocab_size: 256,
+            d_model: 32,
+            n_heads: 4,
+            n_layers: 1,
+            ffn_dim: 64,
+            max_seq: 64,
+        };
+        let model = MiniGpt::random(cfg, &mut seed).unwrap();
+        let prompt = ByteTokenizer::encode("a");
+        let mut count = 0usize;
+        let out = generate_from_ids_with_callback(
+            &model,
+            &prompt,
+            10,
+            1.0,
+            1.0,
+            &mut 11u32,
+            |_| {
+                count += 1;
+                count < 2
+            },
+        )
+        .unwrap();
+        assert_eq!(out.len(), prompt.len() + 2);
     }
 }

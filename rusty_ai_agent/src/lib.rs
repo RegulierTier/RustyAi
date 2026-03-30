@@ -8,37 +8,39 @@
 //! Phase 2: Diagnosen ([`UnifiedDiagnostic`], [`parse_cargo_json_stream`]), Prompts ([`PromptKind`], [`render_embedded`]), Tests ([`CargoTestInvocation`]).
 //! Phase 3: [`PolicyCatalog`] / `RUSTY_AI_AGENT_POLICY`, [`BatchReport`], [`BudgetLlmBackend`], [`CompletionUsage`] (HTTP).
 
-mod diff_preview;
-pub mod diagnostics;
-mod error;
-mod fallback_backend;
-mod llm_backend;
-mod policy;
-pub mod policy_catalog;
-mod telemetry;
-mod tool_parse;
-mod tools;
-
-mod orchestrator;
-mod prompts;
-mod cargo_test;
-mod batch_report;
-mod budget;
-
-#[cfg(feature = "real-exec")]
-mod executor;
-
+mod core;
+pub mod tools;
+pub mod policy;
+pub mod telemetry;
+pub mod feedback;
+pub mod batch;
+mod execution;
 #[cfg(feature = "http")]
-mod openai_compat;
+pub mod http;
 
-pub use error::{LlmError, ToolInvocationParseError};
-pub use llm_backend::{
+pub use core::error::{LlmError, ToolInvocationParseError};
+pub use core::llm_backend::{
     ChatMessage, ChatRole, CompletionRequest, CompletionResponse, CompletionUsage, LlmBackend,
     ModelToolCall, ToolDefinition,
 };
-pub use fallback_backend::FallbackBackend;
-pub use orchestrator::complete_with_tool_parse_retries;
-pub use diff_preview::{format_replace_preview, truncate_middle};
+pub use core::llm_backend;
+
+pub use tools::{
+    format_replace_preview, names, parse_json_arguments_loose, tool_invocations_from_model_calls,
+    tool_invocations_try_each, tool_parse_retry_instruction, truncate_middle, truncate_utf8_prefix,
+    ToolInvocation, ToolInvocationParseItem, ToolExecutionResult,
+};
+pub use policy::{AllowlistPolicy, PolicyCatalog, ENV_POLICY};
+pub use telemetry::{LocalTelemetry, TelemetrySnapshot, TimedBackend};
+pub use execution::complete_with_tool_parse_retries;
+pub use execution::FallbackBackend;
+pub use batch::{BatchReport, BatchStepKind, BatchStepRecord, BudgetLlmBackend};
+
+pub use feedback::cargo_test as cargo_test;
+pub use feedback::diagnostics as diagnostics;
+pub use feedback::prompts as prompts;
+
+pub use cargo_test::{CargoTestArgvError, CargoTestInvocation};
 pub use diagnostics::{
     format_for_prompt, merge_diagnostics, parse_cargo_json_line, parse_cargo_json_stream,
     parse_lsp_diagnostic_json, DiagnosticSeverity, DiagnosticSource, Position, Range,
@@ -48,20 +50,9 @@ pub use prompts::{
     load_embedded, load_from_dir, render_embedded, render_template, PromptKind, RenderedPrompt,
     EMBEDDED_PROMPT_VERSION,
 };
-pub use cargo_test::{CargoTestArgvError, CargoTestInvocation};
-pub use batch_report::{BatchReport, BatchStepKind, BatchStepRecord};
-pub use budget::BudgetLlmBackend;
-pub use telemetry::{LocalTelemetry, TelemetrySnapshot, TimedBackend};
-pub use policy::AllowlistPolicy;
-pub use policy_catalog::{PolicyCatalog, ENV_POLICY};
-pub use tool_parse::{
-    parse_json_arguments_loose, tool_invocations_from_model_calls, tool_invocations_try_each,
-    tool_parse_retry_instruction, ToolInvocationParseItem,
-};
-pub use tools::{names, ToolExecutionResult, ToolInvocation};
 
 #[cfg(feature = "real-exec")]
-pub use executor::{ExecutorError, RealExecutor};
+pub use execution::{ExecutorError, RealExecutor};
 
 #[cfg(feature = "http")]
-pub use openai_compat::{OpenAiChatConfig, OpenAiCompatBackend};
+pub use http::{OpenAiChatConfig, OpenAiCompatBackend};

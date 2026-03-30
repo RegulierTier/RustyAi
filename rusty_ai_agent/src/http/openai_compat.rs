@@ -18,7 +18,7 @@ use crate::llm_backend::{
     ChatMessage, ChatRole, CompletionRequest, CompletionResponse, CompletionUsage, LlmBackend,
     ModelToolCall,
 };
-use crate::tool_parse::parse_json_arguments_loose;
+use crate::tools::{parse_json_arguments_loose, truncate_utf8_prefix};
 use crate::LlmError;
 
 /// Aggregated outcome of parsing an SSE chat completion stream (text, finish reason, tool calls, usage).
@@ -203,7 +203,7 @@ fn truncate_body(s: &str) -> String {
     if s.len() <= MAX {
         s.to_string()
     } else {
-        format!("{}… (truncated)", &s[..MAX])
+        format!("{}… (truncated)", truncate_utf8_prefix(s, MAX))
     }
 }
 

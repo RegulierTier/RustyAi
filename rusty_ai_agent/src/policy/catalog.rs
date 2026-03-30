@@ -5,7 +5,7 @@ use std::env;
 
 use serde::Deserialize;
 
-use crate::AllowlistPolicy;
+use super::allowlist::AllowlistPolicy;
 
 /// Umgebungsvariable für die aktive Policy: `dev`, `ci`, oder ein benutzerdefinierter Name aus einem geladenen Katalog.
 pub const ENV_POLICY: &str = "RUSTY_AI_AGENT_POLICY";

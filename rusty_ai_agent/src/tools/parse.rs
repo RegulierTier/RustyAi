@@ -2,8 +2,9 @@
 
 use std::fmt::Write;
 
-use crate::error::ToolInvocationParseError;
-use crate::{ModelToolCall, ToolInvocation};
+use crate::core::error::ToolInvocationParseError;
+use crate::core::llm_backend::ModelToolCall;
+use super::invocation::ToolInvocation;
 
 /// Ein fehlgeschlagener Einzelaufruf aus [`tool_invocations_try_each`].
 #[derive(Debug)]
@@ -52,8 +53,8 @@ pub fn tool_parse_retry_instruction(failed: &[ToolInvocationParseItem]) -> Strin
 /// optional fenced markdown blocks (`` ```json ... ``` ``).
 pub fn parse_json_arguments_loose(raw: &str) -> Result<serde_json::Value, serde_json::Error> {
     let t = raw.trim();
-    let json_slice = if t.starts_with("```") {
-        let rest = t.strip_prefix("```").unwrap().trim_start();
+    let json_slice = if let Some(rest) = t.strip_prefix("```") {
+        let rest = rest.trim_start();
         let rest = rest.strip_prefix("json").unwrap_or(rest).trim_start();
         let end = rest.rfind("```").unwrap_or(rest.len());
         rest[..end].trim()
@@ -76,7 +77,7 @@ pub fn tool_invocations_from_model_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::names;
+    use crate::tools::names;
     use serde_json::json;
 
     #[test]

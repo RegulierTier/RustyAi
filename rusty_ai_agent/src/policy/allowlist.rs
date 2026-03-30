@@ -1,12 +1,12 @@
 //! Path/binary allowlist for tool execution (Phase 0).
 //!
 //! Phase 3: Voreinstellungen [`AllowlistPolicy::preset_dev`] / [`AllowlistPolicy::preset_ci`] und
-//! [`PolicyCatalog`](crate::policy_catalog::PolicyCatalog) mit `RUSTY_AI_AGENT_POLICY`.
+//! [`PolicyCatalog`](crate::policy::PolicyCatalog) mit `RUSTY_AI_AGENT_POLICY`.
 
 use std::collections::HashSet;
 use std::path::{Component, Path};
 
-use crate::ToolInvocation;
+use crate::tools::ToolInvocation;
 
 /// Rejects `..`, restricts relative paths to optional prefixes, and allowlists `run_cmd` binaries.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

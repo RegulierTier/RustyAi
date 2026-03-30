@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::LlmError;
+use super::error::LlmError;
 
 /// Role in a chat transcript (OpenAI-style naming).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

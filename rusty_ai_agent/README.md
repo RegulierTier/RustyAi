@@ -1,6 +1,6 @@
 # `rusty_ai_agent`
 
-**Agent-/IDE-Protokoll** für den RustyAi-Workspace: austauschbares [`LlmBackend`](src/llm_backend.rs), Chat-/Completion-Typen und ein **JSON-kompatibles Tool-Protokoll** (`read_file`, `write_file`, `run_cmd`, `search_replace`) inkl. [JSON Schema](schemas/tool_invocation.json).
+**Agent-/IDE-Protokoll** für den RustyAi-Workspace: austauschbares [`LlmBackend`](src/core/llm_backend.rs), Chat-/Completion-Typen und ein **JSON-kompatibles Tool-Protokoll** (`read_file`, `write_file`, `run_cmd`, `search_replace`) inkl. [JSON Schema](schemas/tool_invocation.json).
 
 | Dokument | Inhalt |
 | -------- | ------ |
@@ -12,6 +12,8 @@
 
 Ohne Features führt dieses Crate **kein** HTTP und kein Dateisystem aus — nur Typen, Trait und Hilfsfunktionen. Ausführung und Policies liegen im Orchestrierungs- oder Produkt-Code (oder hinter den optionalen Features unten).
 
+**Hinweis:** Unter `src/` liegt nur **Rust**-Quelltext dieses Crates. Fremde Skripte (z. B. Python) gehören nicht hierher — bei Bedarf z. B. `contrib/` im Repo oder ein separates Tool-Repository.
+
 ---
 
 ## Features (`Cargo.toml`)
@@ -19,8 +21,8 @@ Ohne Features führt dieses Crate **kein** HTTP und kein Dateisystem aus — nur
 | Feature | Wirkung |
 | ------- | ------- |
 | *(default)* | Nur Typen, Parsing, Policy, Orchestrierung-Hilfen |
-| **`real-exec`** | [`RealExecutor`](src/executor.rs): echtes `std::fs` / `std::process` nach Policy-Check |
-| **`http`** | [`OpenAiCompatBackend`](src/openai_compat.rs): `POST …/chat/completions` (blocking `reqwest`) |
+| **`real-exec`** | [`RealExecutor`](src/execution/executor.rs): echtes `std::fs` / `std::process` nach Policy-Check |
+| **`http`** | [`OpenAiCompatBackend`](src/http/openai_compat.rs): `POST …/chat/completions` (blocking `reqwest`) |
 
 Zusätzliches Crate **[`rusty_ai_workspace`](../rusty_ai_workspace/README.md)** (Workspace-Member): Index + Suche; Feature **`embeddings`** dort für HTTP-Embeddings.
 
@@ -35,21 +37,21 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 
 | Bereich | Wichtige Symbole |
 | ------- | ---------------- |
-| LLM | [`LlmBackend`](src/llm_backend.rs), `CompletionRequest`, `CompletionResponse`, `ModelToolCall`, `ToolDefinition` |
-| Tools | [`ToolInvocation`](src/tools.rs), [`names`](src/tools.rs) (`read_file`, …) |
-| Parsing | [`tool_invocations_from_model_calls`](src/tool_parse.rs), [`parse_json_arguments_loose`](src/tool_parse.rs), [`tool_invocations_try_each`](src/tool_parse.rs) |
-| Policy | [`AllowlistPolicy`](src/policy.rs) |
-| Orchestrierung | [`complete_with_tool_parse_retries`](src/orchestrator.rs) |
-| Fallback | [`FallbackBackend`](src/fallback_backend.rs) |
-| Telemetrie (lokal) | [`LocalTelemetry`](src/telemetry.rs), [`TimedBackend`](src/telemetry.rs) |
-| Vorschau | [`format_replace_preview`](src/diff_preview.rs) |
-| Diagnosen (Phase 2) | [`parse_cargo_json_stream`](src/diagnostics.rs), [`parse_lsp_diagnostic_json`](src/diagnostics.rs), [`merge_diagnostics`](src/diagnostics.rs), [`format_for_prompt`](src/diagnostics.rs) |
-| Prompts (Phase 2) | [`render_embedded`](src/prompts.rs), [`PromptKind`](src/prompts.rs) — Vorlagen [`prompts/v1/`](prompts/v1/) |
-| Tests (Phase 2) | [`CargoTestInvocation`](src/cargo_test.rs) |
-| Policies (Phase 3) | [`PolicyCatalog`](src/policy_catalog.rs), `RUSTY_AI_AGENT_POLICY`, `AllowlistPolicy::preset_dev` / `preset_ci` |
-| Batch-Report (Phase 3) | [`BatchReport`](src/batch_report.rs), [`BatchStepRecord`](src/batch_report.rs) |
-| Budget (Phase 3) | [`BudgetLlmBackend`](src/budget.rs), [`CompletionUsage`](src/llm_backend.rs) |
-| HTTP (Feature) | [`OpenAiCompatBackend`](src/openai_compat.rs), [`OpenAiChatConfig`](src/openai_compat.rs), `complete_stream` / `complete_stream_text` |
+| LLM | [`LlmBackend`](src/core/llm_backend.rs), `CompletionRequest`, `CompletionResponse`, `ModelToolCall`, `ToolDefinition` |
+| Tools | [`ToolInvocation`](src/tools/invocation.rs), [`names`](src/tools/invocation.rs) (`read_file`, …) |
+| Parsing | [`tool_invocations_from_model_calls`](src/tools/parse.rs), [`parse_json_arguments_loose`](src/tools/parse.rs), [`tool_invocations_try_each`](src/tools/parse.rs) |
+| Policy | [`AllowlistPolicy`](src/policy/allowlist.rs) |
+| Orchestrierung | [`complete_with_tool_parse_retries`](src/execution/orchestrator.rs) |
+| Fallback | [`FallbackBackend`](src/execution/fallback_backend.rs) |
+| Telemetrie (lokal) | [`LocalTelemetry`](src/telemetry/mod.rs), [`TimedBackend`](src/telemetry/mod.rs) |
+| Vorschau / Text kürzen | [`format_replace_preview`](src/tools/diff_preview.rs), [`truncate_middle`](src/tools/diff_preview.rs), [`truncate_utf8_prefix`](src/tools/diff_preview.rs) (UTF-8-sicheres Präfix; u. a. für Log-Auszüge) |
+| Diagnosen (Phase 2) | [`parse_cargo_json_stream`](src/feedback/diagnostics.rs), [`parse_lsp_diagnostic_json`](src/feedback/diagnostics.rs), [`merge_diagnostics`](src/feedback/diagnostics.rs), [`format_for_prompt`](src/feedback/diagnostics.rs) |
+| Prompts (Phase 2) | [`render_embedded`](src/feedback/prompts.rs), [`PromptKind`](src/feedback/prompts.rs) — Vorlagen [`prompts/v1/`](prompts/v1/) |
+| Tests (Phase 2) | [`CargoTestInvocation`](src/feedback/cargo_test.rs) |
+| Policies (Phase 3) | [`PolicyCatalog`](src/policy/catalog.rs), `RUSTY_AI_AGENT_POLICY`, `AllowlistPolicy::preset_dev` / `preset_ci` |
+| Batch-Report (Phase 3) | [`BatchReport`](src/batch/batch_report.rs), [`BatchStepRecord`](src/batch/batch_report.rs) |
+| Budget (Phase 3) | [`BudgetLlmBackend`](src/batch/budget.rs), [`CompletionUsage`](src/core/llm_backend.rs) |
+| HTTP (Feature) | [`OpenAiCompatBackend`](src/http/openai_compat.rs), [`OpenAiChatConfig`](src/http/openai_compat.rs), `complete_stream` / `complete_stream_text` (SSE; Fehlertexte werden UTF-8-sicher gekürzt) |
 
 ---
 
@@ -77,9 +79,9 @@ cargo test -p rusty_ai_agent --all-features   # inkl. http + real-exec
 
 | Thema | Kurz |
 | ----- | ---- |
-| **Policies pro Umgebung** | [`PolicyCatalog`](src/policy_catalog.rs) mappt Namen (`dev`, `ci`, …) auf [`AllowlistPolicy`](src/policy.rs). Auswahl: Umgebungsvariable **`RUSTY_AI_AGENT_POLICY`** (Standard `dev`). Voreinstellungen: [`AllowlistPolicy::preset_dev`](src/policy.rs) / [`preset_ci`](src/policy.rs) — **keine automatische CI-Erkennung**; explizit setzen. Eigene Einträge per JSON: [`schemas/policy_catalog.example.json`](schemas/policy_catalog.example.json), Loader [`PolicyCatalog::from_json_merging_builtin`](src/policy_catalog.rs). |
-| **Batch-/Nightly-Reports** | [`BatchReport`](src/batch_report.rs) serialisiert Schritte (LLM, Tool, Check) als JSON; optional Markdown für Lesbarkeit. Kein interaktives Terminal — nur Datenmodell für Orchestrierung/CI. Demo: **`batch_report_demo`**. |
-| **Kosten-Limits** | Mit Feature **`http`**: API-Antworten können [`CompletionUsage`](src/llm_backend.rs) enthalten; [`BudgetLlmBackend`](src/budget.rs) wrappt ein [`LlmBackend`](src/llm_backend.rs) und bricht bei überschrittenen `max_total_tokens` / `max_complete_calls` ab. [`LocalTelemetry`](src/telemetry.rs) kann gemeldete Tokens spiegeln (`total_tokens_reported`). |
+| **Policies pro Umgebung** | [`PolicyCatalog`](src/policy/catalog.rs) mappt Namen (`dev`, `ci`, …) auf [`AllowlistPolicy`](src/policy/allowlist.rs). Auswahl: Umgebungsvariable **`RUSTY_AI_AGENT_POLICY`** (Standard `dev`). Voreinstellungen: [`AllowlistPolicy::preset_dev`](src/policy/allowlist.rs) / [`preset_ci`](src/policy/allowlist.rs) — **keine automatische CI-Erkennung**; explizit setzen. Eigene Einträge per JSON: [`schemas/policy_catalog.example.json`](schemas/policy_catalog.example.json), Loader [`PolicyCatalog::from_json_merging_builtin`](src/policy/catalog.rs). |
+| **Batch-/Nightly-Reports** | [`BatchReport`](src/batch/batch_report.rs) serialisiert Schritte (LLM, Tool, Check) als JSON; optional Markdown für Lesbarkeit. Kein interaktives Terminal — nur Datenmodell für Orchestrierung/CI. Demo: **`batch_report_demo`**. |
+| **Kosten-Limits** | Mit Feature **`http`**: API-Antworten können [`CompletionUsage`](src/core/llm_backend.rs) enthalten; [`BudgetLlmBackend`](src/batch/budget.rs) wrappt ein [`LlmBackend`](src/core/llm_backend.rs) und bricht bei überschrittenen `max_total_tokens` / `max_complete_calls` ab. [`LocalTelemetry`](src/telemetry/mod.rs) kann gemeldete Tokens spiegeln (`total_tokens_reported`). |
 
 **Sicherheit:** Policy-Namen ersetzen **keine** Sandbox — siehe **[SECURITY.md](SECURITY.md)**.
 

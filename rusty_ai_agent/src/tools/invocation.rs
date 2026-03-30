@@ -6,8 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ToolInvocationParseError;
-use crate::ModelToolCall;
+use crate::core::error::ToolInvocationParseError;
+use crate::core::llm_backend::ModelToolCall;
 
 /// Stable names for tools (use in prompts and OpenAI-style `function.name`).
 pub mod names {

@@ -29,7 +29,7 @@ pub use checkpoint::{
     save_minigpt_checkpoint, state_dict, tensor_from_safetensors_view, CheckpointError,
     MiniGptConfigFile,
 };
-pub use generate::{generate, generate_from_ids, sample_token};
+pub use generate::{generate, generate_from_ids, generate_from_ids_with_callback, sample_token};
 pub use gpt2_hf::{
     gpt2_state_dict_to_minigpt, load_minigpt_from_gpt2_safetensors, Gpt2MappingError,
 };

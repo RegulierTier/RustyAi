@@ -37,7 +37,7 @@ Datenfluss bei **LLM-Inferenz**: Token-IDs → Einbettungen → Decoder-Blöcke 
 
 ### 1.3 IDE-nähe und Produkt um RustyAi herum
 
-Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnahe** Einbindung (Orchestrierung, austauschbare LLM-Backends, Tool-Loops, Compiler-Feedback) siehe **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** (Pfad B: Architektur und Roadmap). **Phase-0-Typen** (`LlmBackend`, Tool-JSON) liegen im Crate **`rusty_ai_agent`** ([README](../rusty_ai_agent/README.md)); optionales **HTTP** (OpenAI-kompatibel): Feature **`http`**, [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) mit **`complete_stream`** (SSE, inkl. Tool-Deltas); Hilfen: [`tool_invocations_try_each` / `tool_parse_retry_instruction`](../rusty_ai_agent/src/tool_parse.rs), [`format_replace_preview`](../rusty_ai_agent/src/diff_preview.rs), [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs), [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs), [`LocalTelemetry` / `TimedBackend`](../rusty_ai_agent/src/telemetry.rs).
+Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnahe** Einbindung (Orchestrierung, austauschbare LLM-Backends, Tool-Loops, Compiler-Feedback) siehe **[ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md)** (Pfad B: Architektur und Roadmap). **Phase-0-Typen** (`LlmBackend`, Tool-JSON) liegen im Crate **`rusty_ai_agent`** ([README](../rusty_ai_agent/README.md)); optionales **HTTP** (OpenAI-kompatibel): Feature **`http`**, [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) mit **`complete_stream`** (SSE, inkl. Tool-Deltas); Hilfen: [`tool_invocations_try_each` / `tool_parse_retry_instruction`](../rusty_ai_agent/src/tools/parse.rs), [`format_replace_preview`](../rusty_ai_agent/src/tools/diff_preview.rs), [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/execution/orchestrator.rs), [`FallbackBackend`](../rusty_ai_agent/src/execution/fallback_backend.rs), [`LocalTelemetry` / `TimedBackend`](../rusty_ai_agent/src/telemetry/mod.rs).
 
 ---
 
@@ -108,7 +108,8 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 - **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
 - **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, Pre-LayerNorm (mit γ/β) + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head` nach finaler LayerNorm (ebenfalls γ/β).
 - **`causal_attention` / `attention_single_query`:** Skaliertes Dot-Product; ersteres mit kausaler Maske für volle Sequenz, letzteres für einen Query mit Sequenzlänge 1 gegen die vollständige Key-/Value-Historie (nach KV-Konkatenation). Keine zusätzliche Maske nötig, da alle Keys „Vergangenheit“ sind.
-- **`generate` / `generate_from_ids` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt den Byte-Tokenizer; `generate_from_ids` arbeitet auf beliebigen Token-IDs (z. B. nach `Gpt2Tokenizer::encode`). **Prefill** + **KV-Cache** wie oben. Bei `max_tokens == 0`: `generate` decodiert nur den Prompt; `generate_from_ids` gibt die Prompt-IDs unverändert zurück (ohne Forward).
+- **`generate` / `generate_from_ids` / `generate_from_ids_with_callback` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt den Byte-Tokenizer; `generate_from_ids` arbeitet auf beliebigen Token-IDs (z. B. nach `Gpt2Tokenizer::encode`). **`generate_from_ids_with_callback`** ruft nach jedem neuen Token einen Callback auf (Rückgabe `false` bricht ab) — für inkrementelle Anzeige oder Offline-Streaming **ohne** HTTP. **Prefill** + **KV-Cache** wie oben. Bei `max_tokens == 0`: `generate` decodiert nur den Prompt; `generate_from_ids` gibt die Prompt-IDs unverändert zurück (ohne Forward).
+- **Kontextlänge und Speicher:** `max_seq` begrenzt die Positions-Einbettungen; längere absolute Indizes werden intern gekappt — für sehr lange Kontexte lieber kleineres Modell / kürzere Fenster planen. Voller Forward ohne KV-Cache: Attention grob **O(L²)** in Zeit und Speicher ([`attention.rs`](../rusty_ai_llm/src/attention.rs)). Mit KV-Cache wächst der Speicher bei Generierung **linear** mit der bisherigen Sequenzlänge; es gibt **kein** Sliding-Window / Flash-Attention in dieser Referenzimplementierung.
 - **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
 - **Weitere API:** `MiniGpt::embed_token_at(id, pos)` — kombinierte Token- und Positionszeile für einen Zeitschritt, Shape `(1, 1, d_model)`; wird intern für Decode-Schritte genutzt.
 
@@ -117,6 +118,19 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 **Checkpoints (RustyAi-Format):** `save_minigpt_checkpoint(dir, &model)` schreibt `config.json` (`model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`/`n_layer`/…) und `model.safetensors` mit Tensor-Namen `tok_embed`, `blocks.{i}.*`, `lm_head_w`, …; `load_minigpt_checkpoint(dir)` rekonstruiert ein [`MiniGpt`]. Optional: Crate-Feature **`hf-hub`** und `load_minigpt_from_hf` für Dateien aus einem Hub-Repo (Cache).
 
 **GPT-2-`safetensors`:** `load_minigpt_from_gpt2_safetensors(path, cfg)` mappt HF-Schlüssel (`transformer.h.{i}.attn.c_attn.weight` usw.) auf die interne Struktur. `c_attn` wird in Q/K/V-Matrizen **zerlegt**; `lm_head.weight` akzeptiert sowohl HF-Shape `[vocab, d_model]` als auch RustyAi `[d_model, vocab]`. **Tokenizer:** Feature **`gpt2-bpe`**: `Gpt2Tokenizer::from_file` / `from_model_dir` mit `tokenizer.json` aus dem HF-Modellordner; `ByteTokenizer` bleibt das einfache Byte-Modell für Demos und Training ohne GPT-2-Vokabular.
+
+#### Phase 4 (optional): Fine-Tuning, DPO/Preference — außerhalb des Rust-Workspaces
+
+**Abgrenzung:** SFT, **DPO**, RLHF und ähnliches Alignment laufen in diesem Repo **nicht** als vollständiger Trainer; üblich sind **Python** + Hugging Face (`transformers`, **TRL** für DPO/Preference-Datensätze). Das RustyAi-Workspace liefert **Inferenz** und **RustyAi-eigene Checkpoints** zum Einbinden.
+
+**Empfohlener Ablauf (Checkliste):**
+
+1. **Daten** vorbereiten (Prompt/Antwort-Paare oder Preference-Paare je nach Methode).
+2. **Training** in Python/HF ausführen; Gewichte im passenden Format exportieren (**`safetensors`**).
+3. **In RustyAi laden:** Wenn die Architektur zu HF-GPT-2-kompatiblen Gewichten passt: [`load_minigpt_from_gpt2_safetensors`](../rusty_ai_llm/src/gpt2_hf.rs) + passende [`MiniGptConfig`](../rusty_ai_llm/src/model.rs). Für **eigene RustyAi-Checkpoints**: [`save_minigpt_checkpoint`](../rusty_ai_llm/src/checkpoint.rs) / [`load_minigpt_checkpoint`](../rusty_ai_llm/src/checkpoint.rs) (Format `config.json` + `model.safetensors` im RustyAi-Schema).
+4. **Kein** verpflichtendes Rust-Crate für DPO im Workspace — nur wenn ihr bewusst **Rust-only**-Training wollt (hoher Aufwand).
+
+Siehe [ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md), Phase 4.
 
 ---
 
@@ -134,29 +148,31 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 
 Re-Exportiert die Untercrates unter den Namen `core`, `autograd`, `nn`, `ml`, `llm` und eine Auswahl häufig genutzter Typen (`Tensor`, `Variable`, `Linear`, `Sgd`, `Adam`, `MiniGpt`, `TrainableMiniGpt`, `KvCache`, `generate_from_ids`, …). Mit Feature **`candle`** zusätzlich `rusty_ai_backend_candle` als Modul `candle`. Mit **`gpt2-bpe`**: `Gpt2Tokenizer`, `generate_gpt2_text`, `Gpt2PipelineError`.
 
+Kurzüberblick und Beispielbefehle: **[`rusty_ai/README.md`](../rusty_ai/README.md)**; Feature-Matrix: Abschnitt **8** unten.
+
 ---
 
 ### 2.8 `rusty_ai_agent`
 
-**Verantwortung:** **Agent-/IDE-Protokoll** (Pfad B): austauschbares [`LlmBackend`](../rusty_ai_agent/src/llm_backend.rs), Chat-Typen (`CompletionRequest` / `CompletionResponse`), OpenAI-artige **Tool-Aufrufe** (`ModelToolCall`) und die ausführbare Repräsentation [`ToolInvocation`](../rusty_ai_agent/src/tools.rs) (`read_file`, `write_file`, `run_cmd`, `search_replace`). JSON-Schema: [`schemas/tool_invocation.json`](../rusty_ai_agent/schemas/tool_invocation.json).
+**Verantwortung:** **Agent-/IDE-Protokoll** (Pfad B): austauschbares [`LlmBackend`](../rusty_ai_agent/src/core/llm_backend.rs), Chat-Typen (`CompletionRequest` / `CompletionResponse`), OpenAI-artige **Tool-Aufrufe** (`ModelToolCall`) und die ausführbare Repräsentation [`ToolInvocation`](../rusty_ai_agent/src/tools/invocation.rs) (`read_file`, `write_file`, `run_cmd`, `search_replace`). JSON-Schema: [`schemas/tool_invocation.json`](../rusty_ai_agent/schemas/tool_invocation.json).
 
-Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http`**: [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) (`POST …/chat/completions`, blocking `reqwest`). **Streaming (SSE):** [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/openai_compat.rs) inkl. Aggregation von Text- und Tool-Deltas. Optional **Feature `real-exec`:** [`RealExecutor`](../rusty_ai_agent/src/executor.rs) für echtes Lesen/Schreiben und Subprocess unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs).
+Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http`**: [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) (`POST …/chat/completions`, blocking `reqwest`). **Streaming (SSE):** [`OpenAiCompatBackend::complete_stream`](../rusty_ai_agent/src/http/openai_compat.rs) inkl. Aggregation von Text- und Tool-Deltas. Optional **Feature `real-exec`:** [`RealExecutor`](../rusty_ai_agent/src/execution/executor.rs) für echtes Lesen/Schreiben und Subprocess unter [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs).
 
 **Weitere Bausteine (Auswahl):**
 
 | Modul / API | Zweck |
 | ----------- | ----- |
-| [`tool_parse`](../rusty_ai_agent/src/tool_parse.rs) | `parse_json_arguments_loose`, `tool_invocations_from_model_calls`, `tool_invocations_try_each`, `tool_parse_retry_instruction` |
-| [`orchestrator`](../rusty_ai_agent/src/orchestrator.rs) | `complete_with_tool_parse_retries` (mehrere `complete`-Runden; optional `LocalTelemetry`) |
-| [`fallback_backend`](../rusty_ai_agent/src/fallback_backend.rs) | `FallbackBackend`: primärer `LlmBackend`, bei Fehler Fallback |
-| [`telemetry`](../rusty_ai_agent/src/telemetry.rs) | `LocalTelemetry`, `TimedBackend` (Latenz-/Aufrufzähler), `record_cargo_check` |
-| [`diff_preview`](../rusty_ai_agent/src/diff_preview.rs) | `format_replace_preview` für SEARCH/REPLACE-Review (textuell) |
-| [`diagnostics`](../rusty_ai_agent/src/diagnostics.rs) | `parse_cargo_json_stream`, `parse_lsp_diagnostic_json`, `merge_diagnostics`, `format_for_prompt` |
-| [`prompts`](../rusty_ai_agent/src/prompts.rs) | `PromptKind`, `render_embedded`, `load_from_dir` — Vorlagen unter [`prompts/v1/`](../rusty_ai_agent/prompts/v1/) |
+| [`tool_parse`](../rusty_ai_agent/src/tools/parse.rs) | `parse_json_arguments_loose`, `tool_invocations_from_model_calls`, `tool_invocations_try_each`, `tool_parse_retry_instruction` |
+| [`orchestrator`](../rusty_ai_agent/src/execution/orchestrator.rs) | `complete_with_tool_parse_retries` (mehrere `complete`-Runden; optional `LocalTelemetry`) |
+| [`fallback_backend`](../rusty_ai_agent/src/execution/fallback_backend.rs) | `FallbackBackend`: primärer `LlmBackend`, bei Fehler Fallback |
+| [`telemetry`](../rusty_ai_agent/src/telemetry/mod.rs) | `LocalTelemetry`, `TimedBackend` (Latenz-/Aufrufzähler), `record_cargo_check` |
+| [`diff_preview`](../rusty_ai_agent/src/tools/diff_preview.rs) | `format_replace_preview`, `truncate_middle` (Mitte auslassen), `truncate_utf8_prefix` (Präfix auf Byte-Länge **ohne** UTF-8-Zeichensplit — für Logs und HTTP-Fehlertexte) |
+| [`diagnostics`](../rusty_ai_agent/src/feedback/diagnostics.rs) | `parse_cargo_json_stream`, `parse_lsp_diagnostic_json`, `merge_diagnostics`, `format_for_prompt` |
+| [`prompts`](../rusty_ai_agent/src/feedback/prompts.rs) | `PromptKind`, `render_embedded`, `load_from_dir` — Vorlagen unter [`prompts/v1/`](../rusty_ai_agent/prompts/v1/) |
 | [`cargo_test`](../rusty_ai_agent/src/cargo_test.rs) | `CargoTestInvocation` — sicheres `argv` für `cargo test -p … -- filter` |
-| [`policy_catalog`](../rusty_ai_agent/src/policy_catalog.rs) | `PolicyCatalog`, `RUSTY_AI_AGENT_POLICY`, `AllowlistPolicy::preset_dev` / `preset_ci` |
-| [`batch_report`](../rusty_ai_agent/src/batch_report.rs) | `BatchReport`, `BatchStepRecord` — JSON/Markdown für CI-Batches |
-| [`budget`](../rusty_ai_agent/src/budget.rs) | `BudgetLlmBackend` — Limits für Aufrufe und Token (`CompletionUsage`) |
+| [`policy_catalog`](../rusty_ai_agent/src/policy/catalog.rs) | `PolicyCatalog`, `RUSTY_AI_AGENT_POLICY`, `AllowlistPolicy::preset_dev` / `preset_ci` |
+| [`batch_report`](../rusty_ai_agent/src/batch/batch_report.rs) | `BatchReport`, `BatchStepRecord` — JSON/Markdown für CI-Batches |
+| [`budget`](../rusty_ai_agent/src/batch/budget.rs) | `BudgetLlmBackend` — Limits für Aufrufe und Token (`CompletionUsage`) |
 
 **Sicherheit und Policy:** Siehe **[`rusty_ai_agent/SECURITY.md`](../rusty_ai_agent/SECURITY.md)**. **Architektur / Roadmap (Pfad B):** **[`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md)**.
 
@@ -242,14 +258,14 @@ Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nic
 
 ### 3.4 Agent-Orchestrierung (`rusty_ai_agent`, Pfad B)
 
-1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/openai_compat.rs) (Cloud oder Ollama).
-2. **Tools definieren:** `CompletionRequest::tools` mit JSON-Schema-artigen [`ToolDefinition`](../rusty_ai_agent/src/llm_backend.rs)-Einträgen; Modell liefert `ModelToolCall`s.
-3. **Parsen und ausführen:** `tool_invocations_try_each` oder `tool_invocations_from_model_calls` → [`ToolInvocation`](../rusty_ai_agent/src/tools.rs); vor Ausführung [`AllowlistPolicy::validate`](../rusty_ai_agent/src/policy.rs).
-4. **Fehlerhafte Tool-JSON:** [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/orchestrator.rs) mit `max_complete_calls` und optional `Some(&telemetry)` für Zähler.
-5. **Robustheit:** [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs) (z. B. API ausgefallen → lokal); [`TimedBackend`](../rusty_ai_agent/src/telemetry.rs) + manuell `record_cargo_check` nach `run_cmd`.
-6. **Echte Ausführung:** nur mit Feature **`real-exec`** und [`RealExecutor::new`](../rusty_ai_agent/src/executor.rs) (Workspace-Root kanonisieren).
-7. **Kontext (Phase 2):** [`WorkspaceIndex`](../rusty_ai_workspace/src/lib.rs) für relevante Chunks; Compiler- und LSP-Ausgaben mit [`merge_diagnostics`](../rusty_ai_agent/src/diagnostics.rs) und [`format_for_prompt`](../rusty_ai_agent/src/diagnostics.rs) in die nächste Nachricht; System-Prompt aus [`render_embedded`](../rusty_ai_agent/src/prompts.rs); schnelle Tests mit [`CargoTestInvocation`](../rusty_ai_agent/src/cargo_test.rs) + `run_cmd`.
-8. **Betrieb (Phase 3):** [`PolicyCatalog`](../rusty_ai_agent/src/policy_catalog.rs) mit eingebauten Presets und Auswahl per **`RUSTY_AI_AGENT_POLICY`** (oder eigenes JSON + [`from_json_merging_builtin`](../rusty_ai_agent/src/policy_catalog.rs)) — die aktive [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs) vor jeder Tool-Ausführung verwenden. Für **CI/Nightly** ohne UI: Schritte in [`BatchReport`](../rusty_ai_agent/src/batch_report.rs) sammeln und als JSON/Markdown ablegen (Beispiel `batch_report_demo`). **Kosten-Schutz:** HTTP-Backend mit [`BudgetLlmBackend`](../rusty_ai_agent/src/budget.rs) umhüllen; [`CompletionUsage`](../rusty_ai_agent/src/llm_backend.rs) aus API-Antworten wird gezählt (siehe [`LocalTelemetry`](../rusty_ai_agent/src/telemetry.rs)). **Index:** bei wiederholten Läufen [`WorkspaceIndex::build_cached`](../rusty_ai_workspace/src/lib.rs) nutzen; Embeddings optional mit [`CachingEmbeddingClient`](../rusty_ai_workspace/src/lib.rs).
+1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/core/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/http/openai_compat.rs) (Cloud oder Ollama).
+2. **Tools definieren:** `CompletionRequest::tools` mit JSON-Schema-artigen [`ToolDefinition`](../rusty_ai_agent/src/core/llm_backend.rs)-Einträgen; Modell liefert `ModelToolCall`s.
+3. **Parsen und ausführen:** `tool_invocations_try_each` oder `tool_invocations_from_model_calls` → [`ToolInvocation`](../rusty_ai_agent/src/tools/invocation.rs); vor Ausführung [`AllowlistPolicy::validate`](../rusty_ai_agent/src/policy/allowlist.rs).
+4. **Fehlerhafte Tool-JSON:** [`complete_with_tool_parse_retries`](../rusty_ai_agent/src/execution/orchestrator.rs) mit `max_complete_calls` und optional `Some(&telemetry)` für Zähler.
+5. **Robustheit:** [`FallbackBackend`](../rusty_ai_agent/src/execution/fallback_backend.rs) (z. B. API ausgefallen → lokal); [`TimedBackend`](../rusty_ai_agent/src/telemetry/mod.rs) + manuell `record_cargo_check` nach `run_cmd`.
+6. **Echte Ausführung:** nur mit Feature **`real-exec`** und [`RealExecutor::new`](../rusty_ai_agent/src/execution/executor.rs) (Workspace-Root kanonisieren).
+7. **Kontext (Phase 2):** [`WorkspaceIndex`](../rusty_ai_workspace/src/lib.rs) für relevante Chunks; Compiler- und LSP-Ausgaben mit [`merge_diagnostics`](../rusty_ai_agent/src/feedback/diagnostics.rs) und [`format_for_prompt`](../rusty_ai_agent/src/feedback/diagnostics.rs) in die nächste Nachricht; System-Prompt aus [`render_embedded`](../rusty_ai_agent/src/feedback/prompts.rs); schnelle Tests mit [`CargoTestInvocation`](../rusty_ai_agent/src/feedback/cargo_test.rs) + `run_cmd`.
+8. **Betrieb (Phase 3):** [`PolicyCatalog`](../rusty_ai_agent/src/policy/catalog.rs) mit eingebauten Presets und Auswahl per **`RUSTY_AI_AGENT_POLICY`** (oder eigenes JSON + [`from_json_merging_builtin`](../rusty_ai_agent/src/policy/catalog.rs)) — die aktive [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs) vor jeder Tool-Ausführung verwenden. Für **CI/Nightly** ohne UI: Schritte in [`BatchReport`](../rusty_ai_agent/src/batch/batch_report.rs) sammeln und als JSON/Markdown ablegen (Beispiel `batch_report_demo`). **Kosten-Schutz:** HTTP-Backend mit [`BudgetLlmBackend`](../rusty_ai_agent/src/batch/budget.rs) umhüllen; [`CompletionUsage`](../rusty_ai_agent/src/core/llm_backend.rs) aus API-Antworten wird gezählt (siehe [`LocalTelemetry`](../rusty_ai_agent/src/telemetry/mod.rs)). **Index:** bei wiederholten Läufen [`WorkspaceIndex::build_cached`](../rusty_ai_workspace/src/lib.rs) nutzen; Embeddings optional mit [`CachingEmbeddingClient`](../rusty_ai_workspace/src/lib.rs).
 
 Ausführliche Beispielbefehle: Abschnitt **2.8**, Phase-3-Kurzüberblick im [Agent-README](../rusty_ai_agent/README.md#phase-3-betrieb-und-ci), Sicherheit in [`SECURITY.md`](../rusty_ai_agent/SECURITY.md).
 
@@ -298,15 +314,15 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **WorkspaceIndex** | Zeilen-Chunks aus Dateien unter einem konfigurierbaren Root; Substring-Suche; optional HTTP-Embeddings (`rusty_ai_workspace`, Feature `embeddings`). |
 | **UnifiedDiagnostic** | Gemeinsames Format für rustc-/Cargo-JSON und LSP-Subset; `merge_diagnostics`, `format_for_prompt` (`rusty_ai_agent::diagnostics`). |
 | **CargoTestInvocation** | Validiertes `argv` für `cargo test -p … -- filter` ohne Shell (`rusty_ai_agent`). |
-| **PolicyCatalog** | Namen → [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs); Auswahl z. B. über `RUSTY_AI_AGENT_POLICY` (`rusty_ai_agent`). |
+| **PolicyCatalog** | Namen → [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs); Auswahl z. B. über `RUSTY_AI_AGENT_POLICY` (`rusty_ai_agent`). |
 | **BatchReport** | Serieller Bericht über LLM-/Tool-/Check-Schritte für CI (JSON/Markdown), ohne Terminal-UI (`rusty_ai_agent`). |
-| **BudgetLlmBackend** | Wrapper um [`LlmBackend`](../rusty_ai_agent/src/llm_backend.rs) mit harten Grenzen für Token- und Aufrufanzahl (`rusty_ai_agent`). |
+| **BudgetLlmBackend** | Wrapper um [`LlmBackend`](../rusty_ai_agent/src/core/llm_backend.rs) mit harten Grenzen für Token- und Aufrufanzahl (`rusty_ai_agent`). |
 
 ---
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). **Phase 4 (optional):** Fine-Tuning/DPO-Prozess und `generate_from_ids_with_callback` — Abschnitt **2.5** (`rusty_ai_llm`) und Roadmap Phase 4. Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
 
 ---
 

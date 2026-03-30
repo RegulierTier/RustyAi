@@ -23,4 +23,23 @@ cargo test -p rusty_ai_llm --features gpt2-bpe
 4. **`tok.vocab_size()`** sollte mit **`cfg.vocab_size`** übereinstimmen.
 5. **`generate_gpt2_text(&model, &tok, prompt, max_new, temperature, top_p, &mut seed)`** oder manuell `encode` → **`generate_from_ids`** → `decode`.
 
-Siehe auch das **[Projekt-Handbuch](../docs/HANDBUCH.md)** (Abschnitt `rusty_ai_llm`, Ablauf LLM).
+### Inkrementelle Generierung (Phase 4)
+
+- **`generate_from_ids_with_callback`** — wie `generate_from_ids`, aber nach jedem neuen Token-ID wird `on_token(id) -> bool` aufgerufen; bei `false` wird gestoppt. Kein async nötig; geeignet für UI-Updates oder Logging. **Nicht** zu verwechseln mit HTTP-SSE (`rusty_ai_agent`, Feature `http`).
+
+### Kontextlänge und Speicher
+
+- **`MiniGptConfig::max_seq`** — obere Grenze für Positions-Einbettungen; sehr lange Prompts sind nicht das Ziel dieser kleinen Referenz-API.
+- **Attention** im vollen Forward: grob **O(L²)** ([`src/attention.rs`](src/attention.rs)); KV-Cache linear im Kontext, aber ohne Flash-/Window-Attention.
+
+## Dokumentation
+
+| Ressource | Inhalt |
+| --------- | ------ |
+| **[`docs/HANDBUCH.md`](../docs/HANDBUCH.md)** | Abschnitt **2.5** (`rusty_ai_llm`), Abläufe LLM/KV-Cache, Phase 4 (Fine-Tuning extern, Callback-Generierung) |
+| **[`docs/README.md`](../docs/README.md)** | Index aller Dokumentationsdateien |
+| **[`README.md`](../README.md)** (Repo-Root) | Workspace-Schnellstart und Roadmap |
+
+```bash
+cargo doc -p rusty_ai_llm --no-deps --open
+```

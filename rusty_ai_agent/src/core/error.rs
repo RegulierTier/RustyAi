@@ -1,6 +1,6 @@
 //! Errors from parsing tool payloads and generic LLM backend failures.
 
-/// Failed to map a model tool call to [`crate::ToolInvocation`](super::ToolInvocation).
+/// Failed to map a model tool call to [`crate::ToolInvocation`].
 #[derive(Debug, thiserror::Error)]
 pub enum ToolInvocationParseError {
     #[error("unknown tool name: {0}")]

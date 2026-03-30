@@ -10,7 +10,7 @@ Dieses Dokument ergänzt die Kurzregeln im [README](README.md) und ist für **Pr
 ## Pfad- und Workspace-Regeln
 
 1. **Arbeitsverzeichnis:** Alle relativen Pfade werden gegen ein explizites **Workspace-Root** aufgelöst (`RealExecutor::new`).
-2. **`..` verbieten:** Wie in [`AllowlistPolicy`](src/policy.rs) — verhindert naive Pfad-Eskalation.
+2. **`..` verbieten:** Wie in [`AllowlistPolicy`](src/policy/allowlist.rs) — verhindert naive Pfad-Eskalation.
 3. **Präfix-Allowlist:** Nur Pfade unter erlaubten Präfixen (z. B. `rusty_ai_agent/`, `examples/`).
 4. **Symlinks:** Für Hochrisiko-Umgebungen: nach Auflösung prüfen, ob das kanonische Ziel noch unter dem Workspace liegt (Policy-Erweiterung im Produkt).
 
@@ -23,11 +23,11 @@ Dieses Dokument ergänzt die Kurzregeln im [README](README.md) und ist für **Pr
 
 ## `cargo test` (gezieltes Feedback)
 
-Für schnelle Schleifen ist `cargo test -p <crate> -- <filter>` üblich. Nutze [`CargoTestInvocation`](src/cargo_test.rs), um `argv` **ohne Shell** zusammenzusetzen und gefährliche Zeichen in Filtern zu vermeiden. Die Binary-Allowlist muss weiterhin **`cargo`** enthalten; das Arbeitsverzeichnis (`cwd`) sollte auf das Workspace-Root zeigen. Keine zusammengesetzten Shell-Befehle (`sh -c "cargo test …"`).
+Für schnelle Schleifen ist `cargo test -p <crate> -- <filter>` üblich. Nutze [`CargoTestInvocation`](src/feedback/cargo_test.rs), um `argv` **ohne Shell** zusammenzusetzen und gefährliche Zeichen in Filtern zu vermeiden. Die Binary-Allowlist muss weiterhin **`cargo`** enthalten; das Arbeitsverzeichnis (`cwd`) sollte auf das Workspace-Root zeigen. Keine zusammengesetzten Shell-Befehle (`sh -c "cargo test …"`).
 
 ## Netzwerk
 
-Mit Feature **`http`** ([`OpenAiCompatBackend`](src/openai_compat.rs)): TLS über das System-`reqwest`-Backend; **API-Keys** nur über Umgebungsvariablen oder sicheren Konfigurationskanal — nie in Repos oder Logs. Für Ollama lokal oft **ohne** Bearer-Token (`api_key` leer).
+Mit Feature **`http`** ([`OpenAiCompatBackend`](src/http/openai_compat.rs)): TLS über das System-`reqwest`-Backend; **API-Keys** nur über Umgebungsvariablen oder sicheren Konfigurationskanal — nie in Repos oder Logs. Für Ollama lokal oft **ohne** Bearer-Token (`api_key` leer).
 
 ## Policies pro Umgebung (Phase 3)
 
@@ -37,13 +37,13 @@ Mit Feature **`http`** ([`OpenAiCompatBackend`](src/openai_compat.rs)): TLS übe
 
 ## Kosten / API-Limits (Phase 3)
 
-- **[`BudgetLlmBackend`](src/budget.rs):** `max_complete_calls` und `max_total_tokens` (aus [`CompletionUsage`] in der HTTP-Antwort).
-- **[`TimedBackend`](src/telemetry.rs)** kann Token-Zähler in [`LocalTelemetry::snapshot`] spiegeln (`total_tokens_reported`), wenn das Backend `usage` liefert.
+- **[`BudgetLlmBackend`](src/batch/budget.rs):** `max_complete_calls` und `max_total_tokens` (aus [`CompletionUsage`] in der HTTP-Antwort).
+- **[`TimedBackend`](src/telemetry/mod.rs)** kann Token-Zähler in [`LocalTelemetry::snapshot`] spiegeln (`total_tokens_reported`), wenn das Backend `usage` liefert.
 
 ## Checkliste vor Produktion
 
 - [ ] Policy pro Umgebung (Dev / CI) mit unterschiedlichen Allowlists — siehe [`PolicyCatalog`](src/policy_catalog.rs)
-- [ ] Maximale Tool-Runden / Token-Budgets — [`BudgetLlmBackend`](src/budget.rs)
+- [ ] Maximale Tool-Runden / Token-Budgets — [`BudgetLlmBackend`](src/batch/budget.rs)
 - [ ] Menschliche Freigabe für große `write_file`-Diffs (oder CI-only-Modus)
 
 ## Weiterführend

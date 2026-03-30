@@ -12,6 +12,18 @@ pub fn format_replace_preview(path: &str, old_str: &str, new_str: &str) -> Strin
     )
 }
 
+/// Kürzt einen String auf höchstens `max_bytes` Bytes, nur an UTF-8-Zeichengrenzen (keine Panik bei Mehrbyte-Zeichen).
+pub fn truncate_utf8_prefix(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Kürzt lange Strings in der Mitte, damit Logs lesbar bleiben.
 /// Schneidet nur an UTF-8-Zeichengrenzen (keine Panik bei Mehrbyte-Zeichen).
 pub fn truncate_middle(s: &str, max: usize) -> String {
@@ -93,5 +105,14 @@ mod tests {
         let s = "😀".repeat(80);
         let t = truncate_middle(&s, 20);
         assert!(t.contains('…'));
+    }
+
+    #[test]
+    fn truncate_utf8_prefix_respects_boundaries() {
+        let s = format!("{}€", "a".repeat(1999));
+        assert_eq!(s.len(), 2002);
+        let t = truncate_utf8_prefix(&s, 2000);
+        assert_eq!(t.len(), 1999);
+        assert!(!t.contains('€'));
     }
 }

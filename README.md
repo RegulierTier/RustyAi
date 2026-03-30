@@ -41,7 +41,7 @@ Es ist **kein** Ersatz für PyTorch/JAX und **kein** fertiger Chatbot — sonder
 | **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — HF-GPT-2-Gewichte; BPE mit Feature `gpt2-bpe` |
 | **Candle-Backend** | `rusty_ai_backend_candle`: CPU/CUDA-**Matmul**, **FP8 E4M3**, Referenz-**All-Reduce**; optional `rusty_ai` mit `--features candle` / `candle-cuda` |
 | **Agent (`rusty_ai_agent`)** | `LlmBackend`, Tool-JSON, Policy, optional **`http`** (OpenAI-kompatibel) und **`real-exec`** — Details: [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md) |
-| **Agent: Betrieb (Phase 3)** | Benannte Policies (`RUSTY_AI_AGENT_POLICY`), [`BatchReport`](rusty_ai_agent/src/batch_report.rs) für CI-Artefakte, [`BudgetLlmBackend`](rusty_ai_agent/src/budget.rs) für Token-/Aufruf-Limits — siehe [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md#phase-3-betrieb-und-ci), [`SECURITY.md`](rusty_ai_agent/SECURITY.md) |
+| **Agent: Betrieb (Phase 3)** | Benannte Policies (`RUSTY_AI_AGENT_POLICY`), [`BatchReport`](rusty_ai_agent/src/batch/batch_report.rs) für CI-Artefakte, [`BudgetLlmBackend`](rusty_ai_agent/src/batch/budget.rs) für Token-/Aufruf-Limits — siehe [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md#phase-3-betrieb-und-ci), [`SECURITY.md`](rusty_ai_agent/SECURITY.md) |
 
 ---
 
@@ -116,8 +116,9 @@ Die **fachliche** Roadmap (IDE/Orchestrierung, Phasen 0–4) steht in **[`docs/A
 | ----- | -------- |
 | **0–1** | `LlmBackend`, Tool-Protokoll, HTTP/SSE, Retry, Telemetrie, Fallback — im Workspace weitgehend umgesetzt (`rusty_ai_agent`) |
 | **2–3** | Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache — siehe Roadmap |
+| **4 (optional)** | Doku/Fine-Tuning/DPO extern, `generate_from_ids_with_callback`, Kontextlimits — siehe Roadmap |
 
-Im **ML-/LLM-Kern** bleiben bewusst **TODOs** für Dinge wie vollständiges GPU-Training, Streaming-Generate im `rusty_ai_llm`-Stil — siehe Kommentare in den Crates.
+Im **ML-/LLM-Kern** bleiben bewusst **TODOs** für Dinge wie vollständiges GPU-Training, FIM, Candle-Anbindung an `TrainableMiniGpt` — siehe Kommentare in den Crates.
 
 ---
 
@@ -160,7 +161,7 @@ let text = generate(&model, "Hallo ", 32, 0.8, 0.95, &mut seed).unwrap();
 
 | Crate | Rolle |
 | ----- | ----- |
-| `rusty_ai` | Sammel-Crate: Re-Exports |
+| `rusty_ai` | Sammel-Crate: Re-Exports — [`rusty_ai/README.md`](rusty_ai/README.md) |
 | `rusty_ai_agent` | Agent-Protokoll, optional `http` / `real-exec`; Diagnosen, Prompt-Vorlagen, `CargoTestInvocation` |
 | `rusty_ai_workspace` | Datei-Index (Chunks, Suche), optional Embeddings (`embeddings`) |
 | `rusty_ai_core` | Tensoren, Formen, numerische Operationen |
@@ -194,6 +195,7 @@ Manuelle Inferenz mit **`forward_prefill`** / **`forward_decode_step`** und **`K
 | **[`rusty_ai_workspace/README.md`](rusty_ai_workspace/README.md)** | Workspace-Index, Suche, optional `build_cached`, Embeddings (`CachingEmbeddingClient`) |
 | **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Zentrale Referenz: Crates, Abläufe, Glossar |
 | **[`docs/README.md`](docs/README.md)** | Index der `docs/`-Dateien |
+| **[`rusty_ai/README.md`](rusty_ai/README.md)** | Meta-Crate `rusty_ai`: Features, Beispiele, Links zum Handbuch |
 | **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht Scope-Erweiterung |
 | **[`rusty_ai_backend_candle/README.md`](rusty_ai_backend_candle/README.md)** | Candle-Backend |
 
