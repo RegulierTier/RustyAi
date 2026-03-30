@@ -5,11 +5,7 @@
 use rusty_ai_agent::CargoTestInvocation;
 
 fn main() {
-    let inv = CargoTestInvocation::new(
-        Some("rusty_ai_agent"),
-        &["diagnostics::"],
-        false,
-    )
-    .expect("valid");
+    let inv =
+        CargoTestInvocation::new(Some("rusty_ai_agent"), &["diagnostics::"], false).expect("valid");
     println!("{}", inv.argv().join(" "));
 }

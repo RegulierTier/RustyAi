@@ -1,6 +1,6 @@
 [package]
 name = "rusty_ai"
-version = "1.4.0"
+version = "2.0.0"
 edition.workspace = true
 license.workspace = true
 readme = "README.md"
@@ -30,3 +30,11 @@ path = "examples/train_mlp.rs"
 [[example]]
 name = "train_mini_gpt"
 path = "examples/train_mini_gpt.rs"
+
+[[example]]
+name = "train_micro_checkpoint"
+path = "examples/train_micro_checkpoint.rs"
+
+[[example]]
+name = "mini_local_inference"
+path = "examples/mini_local_inference.rs"

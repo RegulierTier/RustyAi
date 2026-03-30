@@ -37,17 +37,27 @@ pub struct RenderedPrompt {
 pub fn load_embedded(kind: PromptKind) -> &'static str {
     match kind {
         PromptKind::Analyze => {
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/v1/analyze.md"))
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/prompts/v1/analyze.md"
+            ))
         }
         PromptKind::Migrate => {
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/v1/migrate.md"))
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/prompts/v1/migrate.md"
+            ))
         }
         PromptKind::Fix => include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/prompts/v1/fix.md")),
     }
 }
 
 /// Liest eine Vorlage aus `base/prompts/{version}/{kind}.md`.
-pub fn load_from_dir(base: &Path, version: &str, kind: PromptKind) -> Result<String, std::io::Error> {
+pub fn load_from_dir(
+    base: &Path,
+    version: &str,
+    kind: PromptKind,
+) -> Result<String, std::io::Error> {
     let p = base.join("prompts").join(version).join(kind.file_name());
     fs::read_to_string(p)
 }

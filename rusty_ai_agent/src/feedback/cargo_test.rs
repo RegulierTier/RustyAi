@@ -90,7 +90,8 @@ mod tests {
 
     #[test]
     fn package_and_filter() {
-        let i = CargoTestInvocation::new(Some("rusty_ai_agent"), &["diagnostics::"], false).unwrap();
+        let i =
+            CargoTestInvocation::new(Some("rusty_ai_agent"), &["diagnostics::"], false).unwrap();
         assert_eq!(
             i.argv(),
             &[

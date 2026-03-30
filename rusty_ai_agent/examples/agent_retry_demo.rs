@@ -5,9 +5,8 @@
 use std::cell::Cell;
 
 use rusty_ai_agent::{
-    complete_with_tool_parse_retries,
-    names, ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend, LlmError,
-    ModelToolCall,
+    complete_with_tool_parse_retries, names, ChatMessage, ChatRole, CompletionRequest,
+    CompletionResponse, LlmBackend, LlmError, ModelToolCall,
 };
 use serde_json::json;
 

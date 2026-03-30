@@ -2,9 +2,9 @@
 
 use std::fmt::Write;
 
+use super::invocation::ToolInvocation;
 use crate::core::error::ToolInvocationParseError;
 use crate::core::llm_backend::ModelToolCall;
-use super::invocation::ToolInvocation;
 
 /// Ein fehlgeschlagener Einzelaufruf aus [`tool_invocations_try_each`].
 #[derive(Debug)]
@@ -68,10 +68,7 @@ pub fn parse_json_arguments_loose(raw: &str) -> Result<serde_json::Value, serde_
 pub fn tool_invocations_from_model_calls(
     calls: &[ModelToolCall],
 ) -> Result<Vec<ToolInvocation>, ToolInvocationParseError> {
-    calls
-        .iter()
-        .map(ToolInvocation::from_model_call)
-        .collect()
+    calls.iter().map(ToolInvocation::from_model_call).collect()
 }
 
 #[cfg(test)]
@@ -109,13 +106,11 @@ mod tests {
 
     #[test]
     fn first_error_stops() {
-        let calls = vec![
-            ModelToolCall {
-                id: "a".into(),
-                name: "unknown_tool".into(),
-                arguments: json!({}),
-            },
-        ];
+        let calls = vec![ModelToolCall {
+            id: "a".into(),
+            name: "unknown_tool".into(),
+            arguments: json!({}),
+        }];
         assert!(tool_invocations_from_model_calls(&calls).is_err());
     }
 

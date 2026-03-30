@@ -89,8 +89,7 @@ impl<B: LlmBackend> LlmBackend for BudgetLlmBackend<B> {
         }
 
         self.complete_calls.fetch_add(1, Ordering::Relaxed);
-        self.cumulative_tokens
-            .fetch_add(add, Ordering::Relaxed);
+        self.cumulative_tokens.fetch_add(add, Ordering::Relaxed);
 
         Ok(resp)
     }

@@ -22,9 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         OpenAiCompatBackend::new(c)?
     } else {
-        OpenAiCompatBackend::from_env(std::env::var("OPENAI_MODEL").unwrap_or_else(|_| {
-            "gpt-4o-mini".into()
-        }))?
+        OpenAiCompatBackend::from_env(
+            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
+        )?
     };
 
     let req = CompletionRequest {

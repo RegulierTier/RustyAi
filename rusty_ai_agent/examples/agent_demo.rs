@@ -7,8 +7,8 @@
 //! `cargo run -p rusty_ai_agent --example agent_demo --features real-exec -- --real`
 
 use rusty_ai_agent::{
-    names, AllowlistPolicy, ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend,
-    LlmError, ModelToolCall, ToolInvocation,
+    names, AllowlistPolicy, ChatMessage, ChatRole, CompletionRequest, CompletionResponse,
+    LlmBackend, LlmError, ModelToolCall, ToolInvocation,
 };
 
 #[cfg(feature = "real-exec")]

@@ -47,14 +47,12 @@ impl LocalTelemetry {
             u.prompt_tokens.unwrap_or(0) as u64 + u.completion_tokens.unwrap_or(0) as u64
         };
         if add > 0 {
-            self.total_tokens_reported
-                .fetch_add(add, Ordering::Relaxed);
+            self.total_tokens_reported.fetch_add(add, Ordering::Relaxed);
         }
     }
 
     pub(crate) fn record_tool_parse_retry_turn(&self) {
-        self.tool_parse_retry_turns
-            .fetch_add(1, Ordering::Relaxed);
+        self.tool_parse_retry_turns.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn snapshot(&self) -> TelemetrySnapshot {
@@ -63,11 +61,7 @@ impl LocalTelemetry {
         TelemetrySnapshot {
             complete_calls: c,
             total_latency_ms: ms,
-            avg_latency_ms: if c == 0 {
-                0.0
-            } else {
-                ms as f64 / c as f64
-            },
+            avg_latency_ms: if c == 0 { 0.0 } else { ms as f64 / c as f64 },
             tool_parse_retry_turns: self.tool_parse_retry_turns.load(Ordering::Relaxed),
             cargo_check_runs: self.cargo_check_runs.load(Ordering::Relaxed),
             cargo_check_ok: self.cargo_check_ok.load(Ordering::Relaxed),

@@ -1,0 +1,9 @@
+{
+  "model_type": "rusty_ai_minigpt",
+  "vocab_size": 256,
+  "n_embd": 32,
+  "n_layer": 1,
+  "n_head": 4,
+  "n_inner": 64,
+  "n_positions": 64
+}

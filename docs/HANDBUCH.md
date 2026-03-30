@@ -68,7 +68,7 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 **Verantwortung:** Dynamischer Rechengraph und Gradienten.
 
 - **`Variable`:** Hält `Tensor`-Daten in `RefCell` (Optimierer können Gewichte **in-place** setzen), optional `grad`, sowie die Operation (`Op`).
-- **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM, Ziele als Indizes), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
+- **Operationen mit Gradient (Auswahl):** `Add` (inkl. Broadcast; Gradient wird wie bei `Mul` auf die jeweilige Parameterform summiert), `BiasAdd` (Batch-Matrix + Zeilen-Bias `(1,n)`), `MatMul` (2D und Batch-3D), `Mul` (Broadcast), `Relu`, `Gelu`, `LayerNorm` (letzte Achse), `SoftmaxLastDim`, `Reshape`, `TransposeBatchedLast2`, `CausalMask` (Scores), **`FimMask`** (FIM-Sichtbarkeit auf Attention-Scores, siehe `rusty_ai_llm::fim`), `EmbeddingGather`, `SplitHeads` / `MergeHeads`, `CrossEntropyNextToken` (Next-Token-LM über alle Positionen `t < seq-1`), **`CrossEntropyNextTokenSubset`** (Next-Token-CE nur an ausgewählten Zeitindizes `t` — für **FIM** mit `fim_middle_prediction_positions`), `Mse` (Ziel ist konstanter `Tensor`, kein Grad aufs Ziel). Affine LayerNorm ist **kein** eigenes `Op`, sondern die Komposition `layer_norm` → `mul` (γ) → `add` (β) über **`Variable::layer_norm_affine`**.
 - **`backward(loss)`:** Setzt den eingehenden Gradienten auf den Skalar-Loss auf `1` und verteilt rückwärts.
 - **Kontext:** `grad_enabled()`, `set_grad_enabled`, `no_grad(|| { ... })` — im Inferenzpfad keine Graphen erzeugen.
 
@@ -107,7 +107,8 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 - **Feature `gpt2-bpe`:** `Gpt2Tokenizer` lädt Hugging-Face-`tokenizer.json` (Rust-Crate `tokenizers`); `encode` / `decode` mit Token-IDs passend zu HF-GPT-2 (`vocab_size` typisch 50257). Hilfsfunktionen: `generate_from_ids` (Tokenizer-unabhängig), `generate_gpt2_text` (Prompt-String → BPE → Sampling → Text).
 - **`MiniGptConfig`:** `vocab_size`, `d_model`, `n_heads`, `n_layers`, `ffn_dim`, `max_seq` (maximale Länge für **Positions-Einbettungen**; längere absolute Positionen werden auf `max_seq - 1` begrenzt).
 - **`MiniGpt` / `DecoderBlock`:** Token- und Positions-Einbettung, Pre-LayerNorm (mit γ/β) + Residual + Attention + FFN (GELU), Ausgabe-Linear `lm_head` nach finaler LayerNorm (ebenfalls γ/β).
-- **`causal_attention` / `attention_single_query`:** Skaliertes Dot-Product; ersteres mit kausaler Maske für volle Sequenz, letzteres für einen Query mit Sequenzlänge 1 gegen die vollständige Key-/Value-Historie (nach KV-Konkatenation). Keine zusätzliche Maske nötig, da alle Keys „Vergangenheit“ sind.
+- **`causal_attention` / `attention_with_additive_mask` / `attention_single_query`:** Skaliertes Dot-Product; `causal_attention` mit unterer Dreiecksmaske; `attention_with_additive_mask` für benutzerdefinierte additive Score-Masken (z. B. **FIM** über `fim_additive_mask`). `attention_single_query`: ein Query pro Head-Zeile gegen die volle Key-/Value-Historie (KV-Cache-Decode). Ohne KV-Cache sind bei `attention_single_query` alle Keys „Vergangenheit“.
+- **FIM (Fill-in-the-Middle):** Sequenz als `[prefix][middle][suffix]` mit expliziten Längen; **`MiniGpt::forward_fim`** / **`TrainableMiniGpt::forward_fim`**. Training: **`Variable::cross_entropy_next_token_subset`** mit **`fim_middle_prediction_positions`** — nicht autoregressives „generate“, kein Produktanspruch für IDE-Code-Completion; **`max_seq`** begrenzt Positions-Einbettungen wie beim normalen Forward.
 - **`generate` / `generate_from_ids` / `generate_from_ids_with_callback` / `sample_token`:** Autoregressiv; Temperatur, top-p (Nucleus); leeres Logit-Vektor führt zu `TensorError::EmptyTensor`. `generate` nutzt den Byte-Tokenizer; `generate_from_ids` arbeitet auf beliebigen Token-IDs (z. B. nach `Gpt2Tokenizer::encode`). **`generate_from_ids_with_callback`** ruft nach jedem neuen Token einen Callback auf (Rückgabe `false` bricht ab) — für inkrementelle Anzeige oder Offline-Streaming **ohne** HTTP. **Prefill** + **KV-Cache** wie oben. Bei `max_tokens == 0`: `generate` decodiert nur den Prompt; `generate_from_ids` gibt die Prompt-IDs unverändert zurück (ohne Forward).
 - **Kontextlänge und Speicher:** `max_seq` begrenzt die Positions-Einbettungen; längere absolute Indizes werden intern gekappt — für sehr lange Kontexte lieber kleineres Modell / kürzere Fenster planen. Voller Forward ohne KV-Cache: Attention grob **O(L²)** in Zeit und Speicher ([`attention.rs`](../rusty_ai_llm/src/attention.rs)). Mit KV-Cache wächst der Speicher bei Generierung **linear** mit der bisherigen Sequenzlänge; es gibt **kein** Sliding-Window / Flash-Attention in dieser Referenzimplementierung.
 - **`KvCache` / `LayerKv`:** Pro Layer gespeicherte Keys und Values mit Shape `(batch * heads, past_len, d_head)`; `MiniGpt::forward_prefill` und `forward_decode_step` füllen bzw. erweitern den Cache; `forward` / `forward_last` rechnen **ohne** Cache (jedes Mal die volle Sequenz — für Tests und einfache Vergleiche).
@@ -115,7 +116,9 @@ Dieses Handbuch beschreibt den **RustyAi-Workspace**. Für eine **produktionsnah
 
 **Fehlerfälle (Auswahl):** Leere Token-ID-Liste bei `forward`, `forward_prefill` → `TensorError::EmptyTensor`. Inkonsistenter KV-Zustand (nur eines von `k`/`v` gesetzt) in `DecoderBlock::forward_step` → `ShapeError::IncompatibleBroadcast`.
 
-**Checkpoints (RustyAi-Format):** `save_minigpt_checkpoint(dir, &model)` schreibt `config.json` (`model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`/`n_layer`/…) und `model.safetensors` mit Tensor-Namen `tok_embed`, `blocks.{i}.*`, `lm_head_w`, …; `load_minigpt_checkpoint(dir)` rekonstruiert ein [`MiniGpt`]. Optional: Crate-Feature **`hf-hub`** und `load_minigpt_from_hf` für Dateien aus einem Hub-Repo (Cache).
+**Checkpoints (RustyAi-Format):** `save_minigpt_checkpoint(dir, &model)` schreibt `config.json` (`model_type`: `rusty_ai_minigpt`, Felder wie `n_embd`/`n_layer`/…) und `model.safetensors` mit Tensor-Namen `tok_embed`, `blocks.{i}.*`, `lm_head_w`, …; `load_minigpt_checkpoint(dir)` rekonstruiert ein [`MiniGpt`]. **`load_minigpt_checkpoint_bytes(config_json, model_safetensors)`** lädt dasselbe Format aus Speicher (z. B. `include_str!` / `include_bytes!` in Binaries, kein Netz).
+
+**Lokales Mini-Bundle (&lt;5 MB):** `MiniGptConfig::micro_local()` definiert ein kleines Byte-Level-Profil (256 Vokabeln, kompatibel mit `ByteTokenizer`); `MiniGptConfig::approx_weight_bytes()` schätzt die FP32-Größe. Im Repo liegen unter [`rusty_ai/assets/mini_local/`](../rusty_ai/assets/mini_local/) Beispiel-`config.json` und `model.safetensors` (Aktualisierung: `cargo test -p rusty_ai_llm bootstrap_rusty_ai_mini_local_assets -- --ignored` für deterministische Zufallsinitialisierung, oder `cargo run -p rusty_ai --example train_micro_checkpoint` zum kurzen Training und Überschreiben). Demo ohne externe Dateien: `cargo run -p rusty_ai --example mini_local_inference`.
 
 **GPT-2-`safetensors`:** `load_minigpt_from_gpt2_safetensors(path, cfg)` mappt HF-Schlüssel (`transformer.h.{i}.attn.c_attn.weight` usw.) auf die interne Struktur. `c_attn` wird in Q/K/V-Matrizen **zerlegt**; `lm_head.weight` akzeptiert sowohl HF-Shape `[vocab, d_model]` als auch RustyAi `[d_model, vocab]`. **Tokenizer:** Feature **`gpt2-bpe`**: `Gpt2Tokenizer::from_file` / `from_model_dir` mit `tokenizer.json` aus dem HF-Modellordner; `ByteTokenizer` bleibt das einfache Byte-Modell für Demos und Training ohne GPT-2-Vokabular.
 
@@ -141,6 +144,10 @@ Siehe [ARCHITEKTUR_IDE_ROADMAP_B.md](ARCHITEKTUR_IDE_ROADMAP_B.md), Phase 4.
 - **`matmul_f32`:** Matrixmultiplikation auf gewähltem Candle-`Device` (CPU oder CUDA mit Feature **`cuda`**).
 - **`f32_tensor_to_f8e4m3` / `f8e4m3_tensor_to_f32`:** FP8 E4M3 (sinnvoll mit CUDA; Candle unterstützt den Datentyp auch CPU-seitig eingeschränkt).
 - **`all_reduce_mean_cpu`:** Referenzimplementierung des Mittelwerts über mehrere Gradienten-Kopien (gleiche Länge) — entspricht dem Erwartungswert nach einem All-Reduce-Summe und Division durch `world_size`. Multi-GPU-NCCL: Candle-Feature **`nccl`**, siehe Upstream-Dokumentation.
+
+**Abgrenzung zum LM-Training:** [`TrainableMiniGpt`](../rusty_ai_llm/src/trainable.rs) nutzt **`rusty_ai_core::Tensor`** und **`rusty_ai_autograd::Variable`** auf der CPU. Candle arbeitet mit **eigenen** Tensoren und einem **anderen** Graphen — es gibt **keinen** Drop-in-Ersatz für `TrainableMiniGpt` und kein end-to-end gemeinsames Training im Workspace. Sinnvoll sind: Matmul/FP8/All-Reduce als Bausteine; optional ein **Forward-only**-Vergleich (Gewichte aus `MiniGpt` einmal nach `f32`-Puffern kopieren, z. B. für Benchmarks). Vollständiges Training in Candle wäre ein separates Projekt.
+
+**Optionaler Brückentest:** `cargo test -p rusty_ai_backend_candle -- --ignored` — vergleicht eine kleine `w_q`-Matrix aus [`MiniGpt::random`](../rusty_ai_llm/src/model.rs) mit `matmul_f32` auf CPU-Candle (siehe [`README`](../rusty_ai_backend_candle/README.md)).
 
 ---
 
@@ -256,6 +263,18 @@ Es ist **keine Python-Toolchain** erforderlich; Tests und CI bleiben bei **Cargo
 
 Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nicht benötigt (volle Sequenz pro Schritt).
 
+#### 3.3.1 Lokales Mini-Modell (eingebettete Gewichte, ohne Netz)
+
+Für ein **sehr kleines** Byte-Level-LM (typisch **unter 5 MiB** FP32-Gewichte) ohne Hugging Face und ohne Laufzeit-Zugriff auf Dateien neben der Binary:
+
+1. **Konfiguration:** `MiniGptConfig::micro_local()` — passt zu `ByteTokenizer` (`vocab_size` 256). Größenabschätzung: `MiniGptConfig::approx_weight_bytes()`.
+2. **Gewichte im Repo:** Verzeichnis [`rusty_ai/assets/mini_local/`](../rusty_ai/assets/mini_local/) mit `config.json` und `model.safetensors` (RustyAi-Format, siehe §2.5).
+3. **Aktualisierung der Assets:** deterministische Zufallsinitialisierung: `cargo test -p rusty_ai_llm bootstrap_rusty_ai_mini_local_assets -- --ignored`. Alternativ kurzes Training und Überschreiben: `cargo run -p rusty_ai --example train_micro_checkpoint`.
+4. **Einbinden in eine Binary:** `load_minigpt_checkpoint_bytes` mit `include_str!("…/config.json")` und `include_bytes!("…/model.safetensors")` (Pfade relativ zu `CARGO_MANIFEST_DIR` des Crates, das die Includes nutzt).
+5. **Referenz-Demo:** `cargo run -p rusty_ai --example mini_local_inference`.
+
+Details: Abschnitt **2.5** in diesem Handbuch und [`rusty_ai_llm/README.md`](../rusty_ai_llm/README.md) (Abschnitt „Lokales Mini-Bundle“).
+
 ### 3.4 Agent-Orchestrierung (`rusty_ai_agent`, Pfad B)
 
 1. **Kontrakt wählen:** [`LlmBackend::complete`](../rusty_ai_agent/src/core/llm_backend.rs) synchron; für HTTP ein [`OpenAiCompatBackend`](../rusty_ai_agent/src/http/openai_compat.rs) mit passender [`OpenAiChatConfig`](../rusty_ai_agent/src/http/openai_compat.rs) (Cloud oder Ollama).
@@ -306,6 +325,7 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **top-p (Nucleus)** | Sampling aus der kleinsten Menge höchster Wahrscheinlichkeiten, deren Summe ≥ p. |
 | **TrainableMiniGpt** | Decoder-only-Modell mit `Variable`-Gewichten; Forward wie `MiniGpt`, für Training mit `backward` + Optimierer. |
 | **Next-Token-Cross-Entropy** | Mittlerer negativer Log-Likelihood über Positionen `t`, die `token[t+1]` aus `logits[0,t,:]` vorhersagen (`Variable::cross_entropy_next_token`). |
+| **FIM (Fill-in-the-Middle)** | Trainingslayout `[prefix][middle][suffix]` ohne neue Vokabel-IDs; Attention über `fim_additive_mask`; Forward [`MiniGpt::forward_fim`](../rusty_ai_llm/src/model.rs); Loss nur in der Mitte über `Variable::cross_entropy_next_token_subset` + `fim_middle_prediction_positions`. Kein KV-Cache für FIM in der Referenz-API. |
 | **Variable** | Knoten mit Daten und optional Gradient im Autograd-Graphen. |
 | **LlmBackend** | Trait für eine synchrone Chat-/Completion-Anfrage (`complete`); Implementierungen: z. B. HTTP-Client oder Fake für Tests. |
 | **ToolInvocation** | Konkretes, ausführbares Tool (`read_file`, `write_file`, …) nach Parsing aus `ModelToolCall`. |
@@ -317,12 +337,14 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **PolicyCatalog** | Namen → [`AllowlistPolicy`](../rusty_ai_agent/src/policy/allowlist.rs); Auswahl z. B. über `RUSTY_AI_AGENT_POLICY` (`rusty_ai_agent`). |
 | **BatchReport** | Serieller Bericht über LLM-/Tool-/Check-Schritte für CI (JSON/Markdown), ohne Terminal-UI (`rusty_ai_agent`). |
 | **BudgetLlmBackend** | Wrapper um [`LlmBackend`](../rusty_ai_agent/src/core/llm_backend.rs) mit harten Grenzen für Token- und Aufrufanzahl (`rusty_ai_agent`). |
+| **micro_local** | Festes kleines `MiniGptConfig`-Profil für Byte-Tokenizer und lokale Demos; siehe §2.5 und §3.3.1. |
+| **Mini-Bundle** | `config.json` + `model.safetensors` im RustyAi-Format; oft unter `rusty_ai/assets/mini_local/` für eingebettete Inferenz. |
 
 ---
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). **Phase 4 (optional):** Fine-Tuning/DPO-Prozess und `generate_from_ids_with_callback` — Abschnitt **2.5** (`rusty_ai_llm`) und Roadmap Phase 4. Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). **Phase 4 (optional):** Fine-Tuning/DPO-Prozess, `generate_from_ids_with_callback`, **FIM** — Abschnitt **2.5** (`rusty_ai_llm`); Candle-Backend Abschnitt **2.6**. Roadmap: [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
 
 ---
 

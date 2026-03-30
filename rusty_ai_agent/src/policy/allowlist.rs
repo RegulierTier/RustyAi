@@ -51,9 +51,7 @@ impl AllowlistPolicy {
         match inv {
             ToolInvocation::ReadFile { path }
             | ToolInvocation::WriteFile { path, .. }
-            | ToolInvocation::SearchReplace { path, .. } => {
-                self.check_path(path)
-            }
+            | ToolInvocation::SearchReplace { path, .. } => self.check_path(path),
             ToolInvocation::RunCmd { argv, cwd } => {
                 let bin = argv.first().map(String::as_str).unwrap_or("");
                 if !self.allowed_bins.contains(bin) {
@@ -75,9 +73,10 @@ impl AllowlistPolicy {
             return Err("path must not contain `..`".into());
         }
         if !self.path_prefixes.is_empty() {
-            let ok = self.path_prefixes.iter().any(|prefix| {
-                path == prefix.as_str() || path.starts_with(&format!("{prefix}/"))
-            });
+            let ok = self
+                .path_prefixes
+                .iter()
+                .any(|prefix| path == prefix.as_str() || path.starts_with(&format!("{prefix}/")));
             if !ok {
                 return Err(format!(
                     "path must start with one of {:?}, got {path:?}",

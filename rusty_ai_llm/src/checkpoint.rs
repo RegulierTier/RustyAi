@@ -396,19 +396,29 @@ pub fn save_minigpt_checkpoint(
     Ok(())
 }
 
-/// Load [`MiniGpt`] from `dir/config.json` and `dir/model.safetensors`.
-pub fn load_minigpt_checkpoint(dir: impl AsRef<Path>) -> Result<MiniGpt, CheckpointError> {
-    let dir = dir.as_ref();
-    let cfg: MiniGptConfigFile =
-        serde_json::from_str(&fs::read_to_string(dir.join("config.json"))?)?;
-    let cfg = MiniGptConfig::try_from(cfg)?;
-    let buf = fs::read(dir.join("model.safetensors"))?;
-    let st = SafeTensors::deserialize(&buf)?;
+/// Load [`MiniGpt`] from Hugging-Face-style `config.json` content and raw `model.safetensors` bytes.
+///
+/// For embedding checkpoints in binaries, use `include_str!` for the JSON and `include_bytes!` for weights.
+pub fn load_minigpt_checkpoint_bytes(
+    config_json: &str,
+    model_safetensors: &[u8],
+) -> Result<MiniGpt, CheckpointError> {
+    let file_cfg: MiniGptConfigFile = serde_json::from_str(config_json)?;
+    let cfg = MiniGptConfig::try_from(file_cfg)?;
+    let st = SafeTensors::deserialize(model_safetensors)?;
     let mut map = HashMap::new();
     for (name, tv) in st.tensors() {
         map.insert(name.clone(), tensor_from_safetensors_view(&name, tv)?);
     }
     mini_gpt_from_state_dict(cfg, map)
+}
+
+/// Load [`MiniGpt`] from `dir/config.json` and `dir/model.safetensors`.
+pub fn load_minigpt_checkpoint(dir: impl AsRef<Path>) -> Result<MiniGpt, CheckpointError> {
+    let dir = dir.as_ref();
+    let config_json = fs::read_to_string(dir.join("config.json"))?;
+    let buf = fs::read(dir.join("model.safetensors"))?;
+    load_minigpt_checkpoint_bytes(&config_json, &buf)
 }
 
 #[cfg(feature = "hf-hub")]
@@ -453,6 +463,7 @@ pub use hf_hub_download::load_minigpt_from_hf;
 mod checkpoint_tests {
     use super::*;
     use crate::model::MiniGpt;
+    use crate::MiniGptConfig;
 
     fn assert_tensors_close(a: &Tensor, b: &Tensor, eps: f32) {
         assert_eq!(a.shape(), b.shape());
@@ -472,7 +483,7 @@ mod checkpoint_tests {
             ffn_dim: 32,
             max_seq: 16,
         };
-        let m1 = MiniGpt::random(cfg.clone(), &mut seed).unwrap();
+        let m1 = MiniGpt::random(cfg, &mut seed).unwrap();
         let bytes = minigpt_to_safetensors_bytes(&m1).unwrap();
         let st = SafeTensors::deserialize(&bytes).unwrap();
         let mut map = HashMap::new();
@@ -482,7 +493,7 @@ mod checkpoint_tests {
                 tensor_from_safetensors_view(&name, tv).unwrap(),
             );
         }
-        let m2 = mini_gpt_from_state_dict(cfg.clone(), map).unwrap();
+        let m2 = mini_gpt_from_state_dict(cfg, map).unwrap();
         let d1 = state_dict(&m1);
         let d2 = state_dict(&m2);
         assert_eq!(d1.len(), d2.len());
@@ -498,6 +509,27 @@ mod checkpoint_tests {
         for (k, t1) in &d1 {
             assert_tensors_close(t1, d3.get(k).unwrap(), 1e-6);
         }
+
+        let json = fs::read_to_string(dir.join("config.json")).unwrap();
+        let raw = fs::read(dir.join("model.safetensors")).unwrap();
+        let m4 = load_minigpt_checkpoint_bytes(&json, &raw).unwrap();
+        let d4 = state_dict(&m4);
+        for (k, t1) in &d1 {
+            assert_tensors_close(t1, d4.get(k).unwrap(), 1e-6);
+        }
+
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Schreibt [`MiniGptConfig::micro_local`] + `MiniGpt::random` (Seed 42) nach `rusty_ai/assets/mini_local/`.
+    /// Ausführen: `cargo test -p rusty_ai_llm bootstrap_rusty_ai_mini_local_assets -- --ignored`
+    #[test]
+    #[ignore = "refresh rusty_ai/assets/mini_local for mini_local_inference (or run train_micro_checkpoint)"]
+    fn bootstrap_rusty_ai_mini_local_assets() {
+        use std::path::Path;
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../rusty_ai/assets/mini_local");
+        let mut seed = 42u32;
+        let m = MiniGpt::random(MiniGptConfig::micro_local(), &mut seed).unwrap();
+        save_minigpt_checkpoint(&dir, &m).unwrap();
     }
 }

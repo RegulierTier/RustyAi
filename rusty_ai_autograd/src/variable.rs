@@ -42,6 +42,8 @@ enum Op {
     TransposeBatchedLast2(Rc<Variable>),
     /// Upper-future positions in the last two axes (causal attention scores) masked with `-1e9`.
     CausalMask(Rc<Variable>),
+    /// FIM attention scores `(batch*heads, seq, seq)`: disallowed `(i,j)` set to `-1e9`; `(prefix_len, middle_len)`.
+    FimMask(Rc<Variable>, usize, usize),
     /// Embedding table `(vocab, d)`; `indices` has length `seq` (one row picked per position).
     EmbeddingGather(Rc<Variable>, Vec<usize>),
     /// `(batch, seq, d_model) -> (batch*heads, seq, d_head)`.
@@ -50,6 +52,8 @@ enum Op {
     MergeHeads(Rc<Variable>, usize, usize, usize),
     /// Mean cross-entropy for next-token prediction: logits `(1, seq, vocab)`, `targets.len() == seq`.
     CrossEntropyNextToken(Rc<Variable>, Vec<usize>),
+    /// Next-token CE nur an Positionen `t` aus `positions` (jeweils Ziel `targets[t+1]`).
+    CrossEntropyNextTokenSubset(Rc<Variable>, Vec<usize>, Vec<usize>),
     Mse(Rc<Variable>, Tensor),
 }
 
@@ -320,6 +324,54 @@ impl Variable {
         }))
     }
 
+    /// FIM-Maske auf Attention-Scores `(batch*heads, seq, seq)`: verbietene `(i,j)` auf `-1e9`.
+    pub fn fim_mask_scores(
+        scores: &Rc<Variable>,
+        prefix_len: usize,
+        middle_len: usize,
+    ) -> Result<Rc<Variable>, TensorError> {
+        let sd = scores.data();
+        let s = sd.shape();
+        if s.len() != 3 || s[1] != s[2] {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: s.to_vec(),
+                    to: vec![0, 0, 0],
+                },
+            ));
+        }
+        let bh = s[0];
+        let seq = s[2];
+        if prefix_len + middle_len > seq {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![prefix_len, middle_len],
+                    to: vec![seq],
+                },
+            ));
+        }
+        let mut data = sd.data().to_vec();
+        let stride = seq * seq;
+        for b in 0..bh {
+            for i in 0..seq {
+                for j in 0..seq {
+                    if !fim_allowed_mask(i, j, prefix_len, middle_len, seq) {
+                        data[b * stride + i * seq + j] = -1e9f32;
+                    }
+                }
+            }
+        }
+        let out = Tensor::from_vec(data, s.to_vec())?;
+        if !crate::grad_enabled() {
+            return Ok(leaf_detached(out));
+        }
+        Ok(Rc::new(Self {
+            storage: RefCell::new(out),
+            grad: RefCell::new(None),
+            op: Op::FimMask(Rc::clone(scores), prefix_len, middle_len),
+        }))
+    }
+
     /// Next-token language-model loss: for each position `t < seq-1`, predicts `targets[t+1]` from `logits[0,t,:]`.
     /// Scalar mean over `seq-1` positions.
     pub fn cross_entropy_next_token(
@@ -386,6 +438,84 @@ impl Variable {
         }))
     }
 
+    /// Wie [`Self::cross_entropy_next_token`], aber nur für `t` in `positions` (Mittelwert über `positions.len()`).
+    pub fn cross_entropy_next_token_subset(
+        logits: &Rc<Variable>,
+        targets: &[usize],
+        positions: &[usize],
+    ) -> Result<Rc<Self>, TensorError> {
+        let logd = logits.data();
+        let s = logd.shape();
+        if s.len() != 3 || s[0] != 1 {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: s.to_vec(),
+                    to: vec![1, 0, 0],
+                },
+            ));
+        }
+        let seq = s[1];
+        let vocab = s[2];
+        if targets.len() != seq {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![targets.len()],
+                    to: vec![seq],
+                },
+            ));
+        }
+        if positions.is_empty() {
+            return Err(TensorError::Shape(
+                rusty_ai_core::ShapeError::InvalidReshape {
+                    from: vec![0],
+                    to: vec![1],
+                },
+            ));
+        }
+        let ld = logd.data();
+        let mut loss = 0.0f32;
+        let n_active = positions.len() as f32;
+        for &t in positions {
+            if t >= seq.saturating_sub(1) {
+                return Err(TensorError::Shape(
+                    rusty_ai_core::ShapeError::InvalidReshape {
+                        from: vec![t],
+                        to: vec![seq - 1],
+                    },
+                ));
+            }
+            let y = targets[t + 1].min(vocab - 1);
+            let base = t * vocab;
+            let row = &ld[base..base + vocab];
+            let mut max = f32::NEG_INFINITY;
+            for &v in row.iter() {
+                if v > max {
+                    max = v;
+                }
+            }
+            let mut sum_exp = 0.0f32;
+            for &v in row.iter() {
+                sum_exp += (v - max).exp();
+            }
+            let log_p_y = row[y] - max - sum_exp.ln();
+            loss += -log_p_y;
+        }
+        loss /= n_active;
+        let data = Tensor::scalar(loss);
+        if !crate::grad_enabled() {
+            return Ok(leaf_detached(data));
+        }
+        Ok(Rc::new(Self {
+            storage: RefCell::new(data),
+            grad: RefCell::new(None),
+            op: Op::CrossEntropyNextTokenSubset(
+                Rc::clone(logits),
+                targets.to_vec(),
+                positions.to_vec(),
+            ),
+        }))
+    }
+
     pub fn mse(pred: &Rc<Variable>, target: &Tensor) -> Result<Rc<Self>, TensorError> {
         let data = mse(&pred.data(), target)?;
         if !crate::grad_enabled() {
@@ -413,6 +543,23 @@ fn leaf_detached(data: Tensor) -> Rc<Variable> {
         grad: RefCell::new(None),
         op: Op::Leaf,
     })
+}
+
+fn fim_allowed_mask(
+    i: usize,
+    j: usize,
+    prefix_len: usize,
+    middle_len: usize,
+    _seq_len: usize,
+) -> bool {
+    let suffix_start = prefix_len + middle_len;
+    if i < prefix_len {
+        j <= i && j < prefix_len
+    } else if i < suffix_start {
+        j < prefix_len || j >= suffix_start || j <= i
+    } else {
+        j < prefix_len || j < suffix_start || j <= i
+    }
 }
 
 fn acc_grad(v: &Variable, g: &Tensor) -> Result<(), TensorError> {
@@ -545,6 +692,34 @@ fn backward_grad(v: &Rc<Variable>, grad: &Tensor) -> Result<(), TensorError> {
             backward_grad(pre, &gt)?;
             Ok(())
         }
+        Op::FimMask(pre, prefix_len, middle_len) => {
+            let pd = pre.data();
+            let s = pd.shape();
+            if s.len() != 3 {
+                return Err(TensorError::Shape(
+                    rusty_ai_core::ShapeError::InvalidReshape {
+                        from: s.to_vec(),
+                        to: vec![],
+                    },
+                ));
+            }
+            let bh = s[0];
+            let seq = s[2];
+            let mut g = grad.data().to_vec();
+            let stride = seq * seq;
+            for b in 0..bh {
+                for i in 0..seq {
+                    for j in 0..seq {
+                        if !fim_allowed_mask(i, j, *prefix_len, *middle_len, seq) {
+                            g[b * stride + i * seq + j] = 0.0;
+                        }
+                    }
+                }
+            }
+            let gt = Tensor::from_vec(g, s.to_vec())?;
+            backward_grad(pre, &gt)?;
+            Ok(())
+        }
         Op::EmbeddingGather(table, indices) => {
             let td = table.data();
             let shape = td.shape();
@@ -603,6 +778,46 @@ fn backward_grad(v: &Rc<Variable>, grad: &Tensor) -> Result<(), TensorError> {
                     *pi *= inv;
                 }
                 let scale = g0 / n_pred;
+                for (i, &pi) in p.iter().enumerate() {
+                    let delta = if i == y { 1.0 } else { 0.0 };
+                    g[base + i] += scale * (pi - delta);
+                }
+            }
+            let gt = Tensor::from_vec(g, s.to_vec())?;
+            backward_grad(logits, &gt)?;
+            Ok(())
+        }
+        Op::CrossEntropyNextTokenSubset(logits, targets, positions) => {
+            let ld = logits.data();
+            let s = ld.shape();
+            let seq = s[1];
+            let vocab = s[2];
+            let n_active = positions.len() as f32;
+            let ldata = ld.data();
+            let g0 = grad.data().first().copied().unwrap_or(1.0);
+            let mut g = vec![0.0f32; seq * vocab];
+            for &t in positions {
+                let y = targets[t + 1].min(vocab - 1);
+                let base = t * vocab;
+                let row = &ldata[base..base + vocab];
+                let mut max = f32::NEG_INFINITY;
+                for &v in row.iter() {
+                    if v > max {
+                        max = v;
+                    }
+                }
+                let mut sum_exp = 0.0f32;
+                let mut p = vec![0.0f32; vocab];
+                for (i, &v) in row.iter().enumerate() {
+                    let e = (v - max).exp();
+                    p[i] = e;
+                    sum_exp += e;
+                }
+                let inv = 1.0 / sum_exp.max(1e-12);
+                for pi in p.iter_mut() {
+                    *pi *= inv;
+                }
+                let scale = g0 / n_active;
                 for (i, &pi) in p.iter().enumerate() {
                     let delta = if i == y { 1.0 } else { 0.0 };
                     g[base + i] += scale * (pi - delta);

@@ -95,14 +95,10 @@ mod tests {
 
     impl LlmBackend for EchoBackend {
         fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
-            let last = request
-                .messages
-                .last()
-                .cloned()
-                .unwrap_or(ChatMessage {
-                    role: ChatRole::User,
-                    content: String::new(),
-                });
+            let last = request.messages.last().cloned().unwrap_or(ChatMessage {
+                role: ChatRole::User,
+                content: String::new(),
+            });
             Ok(CompletionResponse {
                 message: Some(ChatMessage {
                     role: ChatRole::Assistant,
@@ -129,9 +125,6 @@ mod tests {
             stop_sequences: vec![],
         };
         let res = b.complete(req).unwrap();
-        assert_eq!(
-            res.message.unwrap().content,
-            "hi"
-        );
+        assert_eq!(res.message.unwrap().content, "hi");
     }
 }

@@ -65,14 +65,9 @@ pub struct UnifiedDiagnostic {
 
 impl UnifiedDiagnostic {
     fn dedupe_key(&self) -> DedupeKey {
-        let r = self.range.map(|x| {
-            (
-                x.start.line,
-                x.start.character,
-                x.end.line,
-                x.end.character,
-            )
-        });
+        let r = self
+            .range
+            .map(|x| (x.start.line, x.start.character, x.end.line, x.end.character));
         (
             self.path.to_string_lossy().into_owned(),
             r,
@@ -182,9 +177,7 @@ pub fn parse_cargo_json_line(line: &str) -> Option<UnifiedDiagnostic> {
 
 /// Parst alle Zeilen (typisch: stdout von `cargo check --message-format=json`).
 pub fn parse_cargo_json_stream(text: &str) -> Vec<UnifiedDiagnostic> {
-    text.lines()
-        .filter_map(parse_cargo_json_line)
-        .collect()
+    text.lines().filter_map(parse_cargo_json_line).collect()
 }
 
 // --- LSP subset ---
@@ -241,7 +234,10 @@ fn code_to_string(code: &Option<serde_json::Value>) -> Option<String> {
 }
 
 /// Eine einzelne LSP-`Diagnostic`-JSON (Subset).
-pub fn parse_lsp_diagnostic_json(path_hint: Option<&Path>, raw: &str) -> Result<Vec<UnifiedDiagnostic>, serde_json::Error> {
+pub fn parse_lsp_diagnostic_json(
+    path_hint: Option<&Path>,
+    raw: &str,
+) -> Result<Vec<UnifiedDiagnostic>, serde_json::Error> {
     if let Ok(batch) = serde_json::from_str::<PublishDiagnosticsParams>(raw) {
         let base = batch
             .uri
@@ -327,10 +323,7 @@ pub fn format_for_prompt(diagnostics: &[UnifiedDiagnostic]) -> String {
         };
         let sev = format!("{:?}", d.severity).to_lowercase();
         let src = format!("{:?}", d.source).to_lowercase();
-        s.push_str(&format!(
-            "- [{}] {} ({}) {}\n",
-            sev, loc, src, d.message
-        ));
+        s.push_str(&format!("- [{}] {} ({}) {}\n", sev, loc, src, d.message));
         if let Some(ref c) = d.code {
             s.push_str(&format!("  code: {}\n", c));
         }

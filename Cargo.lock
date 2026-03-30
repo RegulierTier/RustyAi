@@ -2075,7 +2075,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rusty_ai"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "rusty_ai_autograd",
  "rusty_ai_backend_candle",
@@ -2087,7 +2087,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_ai_agent"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -2097,28 +2097,30 @@ dependencies = [
 
 [[package]]
 name = "rusty_ai_autograd"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "rusty_ai_core",
 ]
 
 [[package]]
 name = "rusty_ai_backend_candle"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "candle-core",
+ "rusty_ai_core",
+ "rusty_ai_llm",
 ]
 
 [[package]]
 name = "rusty_ai_core"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "matrixmultiply",
 ]
 
 [[package]]
 name = "rusty_ai_llm"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "hf-hub",
  "rusty_ai_autograd",
@@ -2132,7 +2134,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_ai_ml"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "rusty_ai_autograd",
  "rusty_ai_core",
@@ -2141,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_ai_nn"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "rusty_ai_autograd",
  "rusty_ai_core",
@@ -2149,7 +2151,7 @@ dependencies = [
 
 [[package]]
 name = "rusty_ai_workspace"
-version = "1.4.0"
+version = "2.0.0"
 dependencies = [
  "reqwest",
  "serde",

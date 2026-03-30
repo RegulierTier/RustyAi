@@ -484,7 +484,7 @@ mod gpt2_tests {
             ffn_dim: 32,
             max_seq: 16,
         };
-        let m = MiniGpt::random(cfg.clone(), &mut seed).unwrap();
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let d = state_dict(&m);
 
         let mut hf = HashMap::new();
@@ -584,7 +584,7 @@ mod gpt2_tests {
         );
 
         let mapped = gpt2_state_dict_to_minigpt(&cfg, &hf).unwrap();
-        let m2 = crate::checkpoint::mini_gpt_from_state_dict(cfg.clone(), mapped).unwrap();
+        let m2 = crate::checkpoint::mini_gpt_from_state_dict(cfg, mapped).unwrap();
 
         let ids = vec![1usize, 2, 3, 4];
         let o1 = m.forward(&ids).unwrap();
@@ -606,7 +606,7 @@ mod gpt2_tests {
             ffn_dim: 16,
             max_seq: 8,
         };
-        let m = MiniGpt::random(cfg.clone(), &mut seed).unwrap();
+        let m = MiniGpt::random(cfg, &mut seed).unwrap();
         let d = state_dict(&m);
 
         let mut hf = HashMap::new();
@@ -689,7 +689,7 @@ mod gpt2_tests {
         );
 
         let mapped = gpt2_state_dict_to_minigpt(&cfg, &hf).unwrap();
-        let m2 = crate::checkpoint::mini_gpt_from_state_dict(cfg.clone(), mapped).unwrap();
+        let m2 = crate::checkpoint::mini_gpt_from_state_dict(cfg, mapped).unwrap();
         let ids = vec![1usize, 2];
         let o1 = m.forward(&ids).unwrap();
         let o2 = m2.forward(&ids).unwrap();

@@ -241,19 +241,12 @@ mod tests {
         let mut s2 = 5u32;
         let full = generate_from_ids(&model, &prompt, 4, 0.9, 0.95, &mut s1).unwrap();
         let mut seen = Vec::new();
-        let with_cb = generate_from_ids_with_callback(
-            &model,
-            &prompt,
-            4,
-            0.9,
-            0.95,
-            &mut s2,
-            |t| {
+        let with_cb =
+            generate_from_ids_with_callback(&model, &prompt, 4, 0.9, 0.95, &mut s2, |t| {
                 seen.push(t);
                 true
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(full, with_cb);
         assert_eq!(seen, full[prompt.len()..]);
     }
@@ -272,19 +265,12 @@ mod tests {
         let model = MiniGpt::random(cfg, &mut seed).unwrap();
         let prompt = ByteTokenizer::encode("a");
         let mut count = 0usize;
-        let out = generate_from_ids_with_callback(
-            &model,
-            &prompt,
-            10,
-            1.0,
-            1.0,
-            &mut 11u32,
-            |_| {
+        let out =
+            generate_from_ids_with_callback(&model, &prompt, 10, 1.0, 1.0, &mut 11u32, |_| {
                 count += 1;
                 count < 2
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(out.len(), prompt.len() + 2);
     }
 }

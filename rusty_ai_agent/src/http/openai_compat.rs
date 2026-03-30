@@ -22,7 +22,12 @@ use crate::tools::{parse_json_arguments_loose, truncate_utf8_prefix};
 use crate::LlmError;
 
 /// Aggregated outcome of parsing an SSE chat completion stream (text, finish reason, tool calls, usage).
-type SseStreamResult = (String, Option<String>, Vec<ModelToolCall>, Option<CompletionUsage>);
+type SseStreamResult = (
+    String,
+    Option<String>,
+    Vec<ModelToolCall>,
+    Option<CompletionUsage>,
+);
 
 /// Endpoint and credentials for [`OpenAiCompatBackend`].
 #[derive(Clone, Debug)]
@@ -127,8 +132,7 @@ impl OpenAiCompatBackend {
             )));
         }
         let reader = BufReader::new(resp);
-        let (content, finish_reason, tool_calls, usage) =
-            parse_sse_stream(reader, &mut on_delta)?;
+        let (content, finish_reason, tool_calls, usage) = parse_sse_stream(reader, &mut on_delta)?;
         let has_text = !content.is_empty();
         let message = if has_text || !tool_calls.is_empty() {
             Some(ChatMessage {
@@ -355,10 +359,8 @@ fn parse_choice(resp: ChatCompletionApiResponse) -> Result<CompletionResponse, L
         .unwrap_or_default()
         .into_iter()
         .map(|tc| {
-            let arguments: serde_json::Value =
-                parse_json_arguments_loose(&tc.function.arguments).unwrap_or_else(|_| {
-                    serde_json::Value::String(tc.function.arguments.clone())
-                });
+            let arguments: serde_json::Value = parse_json_arguments_loose(&tc.function.arguments)
+                .unwrap_or_else(|_| serde_json::Value::String(tc.function.arguments.clone()));
             ModelToolCall {
                 id: tc.id,
                 name: tc.function.name,
@@ -470,9 +472,8 @@ fn finalize_partial_tool_calls(
         } else {
             p.id
         };
-        let arguments = parse_json_arguments_loose(&p.arguments).unwrap_or_else(|_| {
-            serde_json::Value::String(p.arguments.clone())
-        });
+        let arguments = parse_json_arguments_loose(&p.arguments)
+            .unwrap_or_else(|_| serde_json::Value::String(p.arguments.clone()));
         out.push(ModelToolCall {
             id,
             name: p.name,

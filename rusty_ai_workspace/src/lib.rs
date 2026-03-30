@@ -78,17 +78,20 @@ impl WorkspaceIndex {
                 continue;
             }
             if let Some(exts) = &config.extensions {
-                let ext = path
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .unwrap_or("");
+                let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("");
                 if !exts.iter().any(|e| e == ext) {
                     continue;
                 }
             }
             let rel = path.to_path_buf();
             let data = fs::read_to_string(path)?;
-            push_chunks(&mut chunks, &rel, &data, config.max_chunk_lines, config.overlap_lines)?;
+            push_chunks(
+                &mut chunks,
+                &rel,
+                &data,
+                config.max_chunk_lines,
+                config.overlap_lines,
+            )?;
         }
 
         Ok(Self { chunks })
@@ -131,15 +134,13 @@ impl WorkspaceIndex {
         };
         fs::write(
             &manifest_path,
-            serde_json::to_string_pretty(&manifest).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-            })?,
+            serde_json::to_string_pretty(&manifest)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
         )?;
         fs::write(
             &chunks_path,
-            serde_json::to_string_pretty(&index).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-            })?,
+            serde_json::to_string_pretty(&index)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
         )?;
         Ok(index)
     }
@@ -197,10 +198,7 @@ fn scan_max_mtime_secs(config: &IndexConfig) -> Result<u64, std::io::Error> {
             continue;
         }
         if let Some(exts) = &config.extensions {
-            let ext = path
-                .extension()
-                .and_then(|x| x.to_str())
-                .unwrap_or("");
+            let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("");
             if !exts.iter().any(|e| e == ext) {
                 continue;
             }
@@ -384,10 +382,7 @@ pub mod embeddings {
             if texts.is_empty() {
                 return Ok(Vec::new());
             }
-            let url = format!(
-                "{}/embeddings",
-                self.config.base_url.trim_end_matches('/')
-            );
+            let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));
             let client = reqwest::blocking::Client::builder()
                 .build()
                 .map_err(|e| EmbeddingError(e.to_string()))?;
@@ -398,16 +393,14 @@ pub mod embeddings {
             if let Some(ref k) = self.config.api_key {
                 req = req.bearer_auth(k);
             }
-            let resp = req
-                .send()
-                .map_err(|e| EmbeddingError(e.to_string()))?;
+            let resp = req.send().map_err(|e| EmbeddingError(e.to_string()))?;
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
             if !status.is_success() {
                 return Err(EmbeddingError(format!("HTTP {}: {}", status, body)));
             }
-            let r: EmbeddingResponse = serde_json::from_str(&body)
-                .map_err(|e| EmbeddingError(e.to_string()))?;
+            let r: EmbeddingResponse =
+                serde_json::from_str(&body).map_err(|e| EmbeddingError(e.to_string()))?;
             let mut out = Vec::with_capacity(r.data.len());
             for d in r.data {
                 out.push(d.embedding);

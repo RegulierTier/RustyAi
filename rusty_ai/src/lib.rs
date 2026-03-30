@@ -24,8 +24,8 @@ pub use rusty_ai_autograd::{backward, no_grad, set_grad_enabled, Variable};
 pub use rusty_ai_core::{add, matmul, softmax, Tensor, TensorError};
 pub use rusty_ai_llm::{
     generate, generate_from_ids, generate_from_ids_with_callback, load_minigpt_checkpoint,
-    load_minigpt_from_gpt2_safetensors, save_minigpt_checkpoint, ByteTokenizer, KvCache, MiniGpt,
-    MiniGptConfig, TrainableMiniGpt,
+    load_minigpt_checkpoint_bytes, load_minigpt_from_gpt2_safetensors, save_minigpt_checkpoint,
+    ByteTokenizer, KvCache, MiniGpt, MiniGptConfig, TrainableMiniGpt,
 };
 pub use rusty_ai_ml::{Adam, Sgd};
 pub use rusty_ai_nn::Linear;

@@ -96,16 +96,17 @@ fn parse_optional_string(v: &serde_json::Value, field: &str) -> Option<String> {
 }
 
 fn parse_argv(v: &serde_json::Value) -> Result<Vec<String>, ToolInvocationParseError> {
-    let arr = v
-        .get("argv")
-        .and_then(|x| x.as_array())
-        .ok_or_else(|| ToolInvocationParseError::MissingField {
+    let arr = v.get("argv").and_then(|x| x.as_array()).ok_or_else(|| {
+        ToolInvocationParseError::MissingField {
             tool: names::RUN_CMD.to_string(),
             field: "argv",
-        })?;
+        }
+    })?;
     let mut out = Vec::with_capacity(arr.len());
     for (index, item) in arr.iter().enumerate() {
-        let s = item.as_str().ok_or(ToolInvocationParseError::ArgvNotString { index })?;
+        let s = item
+            .as_str()
+            .ok_or(ToolInvocationParseError::ArgvNotString { index })?;
         out.push(s.to_string());
     }
     if out.is_empty() {
@@ -188,10 +189,7 @@ mod tests {
             }),
         };
         let inv = ToolInvocation::from_model_call(&call).unwrap();
-        assert!(matches!(
-            inv,
-            ToolInvocation::SearchReplace { .. }
-        ));
+        assert!(matches!(inv, ToolInvocation::SearchReplace { .. }));
     }
 
     #[test]

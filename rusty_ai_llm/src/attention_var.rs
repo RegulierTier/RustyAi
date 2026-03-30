@@ -25,6 +25,25 @@ pub fn causal_attention_var(
     Variable::matmul(&attn, v)
 }
 
+/// FIM-Attention: wie [`causal_attention_var`], aber [`Variable::fim_mask_scores`] statt kausaler Maske.
+pub fn fim_attention_var(
+    q: &Rc<Variable>,
+    k: &Rc<Variable>,
+    v: &Rc<Variable>,
+    d_head: usize,
+    prefix_len: usize,
+    middle_len: usize,
+) -> Result<Rc<Variable>, TensorError> {
+    let kt = Variable::transpose_batched_last2(k)?;
+    let scores = Variable::matmul(q, &kt)?;
+    let scale = 1.0f32 / (d_head as f32).sqrt();
+    let scale_t = Variable::leaf(Tensor::scalar(scale));
+    let scaled = Variable::mul(&scores, &scale_t)?;
+    let masked = Variable::fim_mask_scores(&scaled, prefix_len, middle_len)?;
+    let attn = Variable::softmax_last_dim(&masked)?;
+    Variable::matmul(&attn, v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

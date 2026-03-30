@@ -71,7 +71,10 @@ impl BatchReport {
             let icon = if step.ok { "ok" } else { "FAIL" };
             s.push_str(&format!("- [{icon}] {:?} — {}\n", step.kind, step.label));
             if let Some(ref d) = step.detail {
-                s.push_str(&format!("  ```\n  {}\n  ```\n", d.lines().take(5).collect::<Vec<_>>().join("\n  ")));
+                s.push_str(&format!(
+                    "  ```\n  {}\n  ```\n",
+                    d.lines().take(5).collect::<Vec<_>>().join("\n  ")
+                ));
             }
         }
         s
