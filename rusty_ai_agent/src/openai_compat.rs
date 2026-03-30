@@ -15,10 +15,14 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::llm_backend::{
-    ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend, ModelToolCall,
+    ChatMessage, ChatRole, CompletionRequest, CompletionResponse, CompletionUsage, LlmBackend,
+    ModelToolCall,
 };
 use crate::tool_parse::parse_json_arguments_loose;
 use crate::LlmError;
+
+/// Aggregated outcome of parsing an SSE chat completion stream (text, finish reason, tool calls, usage).
+type SseStreamResult = (String, Option<String>, Vec<ModelToolCall>, Option<CompletionUsage>);
 
 /// Endpoint and credentials for [`OpenAiCompatBackend`].
 #[derive(Clone, Debug)]
@@ -123,7 +127,8 @@ impl OpenAiCompatBackend {
             )));
         }
         let reader = BufReader::new(resp);
-        let (content, finish_reason, tool_calls) = parse_sse_stream(reader, &mut on_delta)?;
+        let (content, finish_reason, tool_calls, usage) =
+            parse_sse_stream(reader, &mut on_delta)?;
         let has_text = !content.is_empty();
         let message = if has_text || !tool_calls.is_empty() {
             Some(ChatMessage {
@@ -137,6 +142,7 @@ impl OpenAiCompatBackend {
             message,
             tool_calls,
             finish_reason,
+            usage,
         })
     }
 
@@ -292,6 +298,18 @@ fn role_str(r: &ChatRole) -> &'static str {
 #[derive(Deserialize)]
 struct ChatCompletionApiResponse {
     choices: Vec<ApiChoice>,
+    #[serde(default)]
+    usage: Option<ApiUsage>,
+}
+
+#[derive(Clone, Deserialize)]
+struct ApiUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -321,6 +339,11 @@ struct ApiFunctionCall {
 }
 
 fn parse_choice(resp: ChatCompletionApiResponse) -> Result<CompletionResponse, LlmError> {
+    let usage = resp.usage.map(|u| CompletionUsage {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+    });
     let choice = resp
         .choices
         .into_iter()
@@ -362,12 +385,15 @@ fn parse_choice(resp: ChatCompletionApiResponse) -> Result<CompletionResponse, L
         message,
         tool_calls,
         finish_reason: choice.finish_reason,
+        usage,
     })
 }
 
 #[derive(Deserialize)]
 struct SseChunk {
     choices: Option<Vec<StreamChoice>>,
+    #[serde(default)]
+    usage: Option<ApiUsage>,
 }
 
 #[derive(Deserialize)]
@@ -459,12 +485,13 @@ fn finalize_partial_tool_calls(
 fn parse_sse_stream<R: BufRead>(
     reader: R,
     on_delta: &mut impl FnMut(&str),
-) -> Result<(String, Option<String>, Vec<ModelToolCall>), LlmError> {
+) -> Result<SseStreamResult, LlmError> {
     let mut buf_reader = reader;
     let mut line = String::new();
     let mut accumulated = String::new();
     let mut last_finish: Option<String> = None;
     let mut partial_tools: BTreeMap<usize, PartialToolCall> = BTreeMap::new();
+    let mut last_usage: Option<CompletionUsage> = None;
 
     loop {
         line.clear();
@@ -491,6 +518,13 @@ fn parse_sse_stream<R: BufRead>(
             Ok(c) => c,
             Err(_) => continue,
         };
+        if let Some(u) = chunk.usage {
+            last_usage = Some(CompletionUsage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            });
+        }
         if let Some(choices) = chunk.choices {
             for c in choices {
                 if let Some(delta) = c.delta {
@@ -514,7 +548,7 @@ fn parse_sse_stream<R: BufRead>(
     }
 
     let tool_calls = finalize_partial_tool_calls(partial_tools)?;
-    Ok((accumulated, last_finish, tool_calls))
+    Ok((accumulated, last_finish, tool_calls, last_usage))
 }
 
 #[cfg(test)]
@@ -579,7 +613,7 @@ mod tests {
                    data: [DONE]\n";
         let mut buf = Cursor::new(sse);
         let mut deltas = Vec::new();
-        let (full, fr, tools) =
+        let (full, fr, tools, _usage) =
             super::parse_sse_stream(&mut buf, &mut |d| deltas.push(d.to_string())).unwrap();
         assert_eq!(full, "Hi!");
         assert_eq!(fr.as_deref(), Some("stop"));
@@ -602,7 +636,7 @@ data: [DONE]
 "#;
         let mut buf = Cursor::new(sse);
         let mut deltas = Vec::new();
-        let (full, fr, tools) =
+        let (full, fr, tools, _usage) =
             super::parse_sse_stream(&mut buf, &mut |d| deltas.push(d.to_string())).unwrap();
         assert_eq!(full, "");
         assert_eq!(fr.as_deref(), Some("tool_calls"));

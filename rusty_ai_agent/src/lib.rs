@@ -6,6 +6,7 @@
 //! Helpers: [`tool_invocations_try_each`], [`tool_parse_retry_instruction`], [`format_replace_preview`], [`complete_with_tool_parse_retries`],
 //! [`FallbackBackend`] (primär + Fallback), [`LocalTelemetry`] / [`TimedBackend`] (lokale Metriken).
 //! Phase 2: Diagnosen ([`UnifiedDiagnostic`], [`parse_cargo_json_stream`]), Prompts ([`PromptKind`], [`render_embedded`]), Tests ([`CargoTestInvocation`]).
+//! Phase 3: [`PolicyCatalog`] / `RUSTY_AI_AGENT_POLICY`, [`BatchReport`], [`BudgetLlmBackend`], [`CompletionUsage`] (HTTP).
 
 mod diff_preview;
 pub mod diagnostics;
@@ -13,6 +14,7 @@ mod error;
 mod fallback_backend;
 mod llm_backend;
 mod policy;
+pub mod policy_catalog;
 mod telemetry;
 mod tool_parse;
 mod tools;
@@ -20,6 +22,8 @@ mod tools;
 mod orchestrator;
 mod prompts;
 mod cargo_test;
+mod batch_report;
+mod budget;
 
 #[cfg(feature = "real-exec")]
 mod executor;
@@ -29,8 +33,8 @@ mod openai_compat;
 
 pub use error::{LlmError, ToolInvocationParseError};
 pub use llm_backend::{
-    ChatMessage, ChatRole, CompletionRequest, CompletionResponse, LlmBackend, ModelToolCall,
-    ToolDefinition,
+    ChatMessage, ChatRole, CompletionRequest, CompletionResponse, CompletionUsage, LlmBackend,
+    ModelToolCall, ToolDefinition,
 };
 pub use fallback_backend::FallbackBackend;
 pub use orchestrator::complete_with_tool_parse_retries;
@@ -45,8 +49,11 @@ pub use prompts::{
     EMBEDDED_PROMPT_VERSION,
 };
 pub use cargo_test::{CargoTestArgvError, CargoTestInvocation};
+pub use batch_report::{BatchReport, BatchStepKind, BatchStepRecord};
+pub use budget::BudgetLlmBackend;
 pub use telemetry::{LocalTelemetry, TelemetrySnapshot, TimedBackend};
 pub use policy::AllowlistPolicy;
+pub use policy_catalog::{PolicyCatalog, ENV_POLICY};
 pub use tool_parse::{
     parse_json_arguments_loose, tool_invocations_from_model_calls, tool_invocations_try_each,
     tool_parse_retry_instruction, ToolInvocationParseItem,

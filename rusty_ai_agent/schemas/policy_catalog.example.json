@@ -1,0 +1,9 @@
+{
+  "default": "ci",
+  "policies": {
+    "strict": {
+      "path_prefixes": ["src"],
+      "allowed_bins": ["cargo"]
+    }
+  }
+}

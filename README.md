@@ -41,6 +41,7 @@ Es ist **kein** Ersatz für PyTorch/JAX und **kein** fertiger Chatbot — sonder
 | **GPT-2-Import** | `load_minigpt_from_gpt2_safetensors` — HF-GPT-2-Gewichte; BPE mit Feature `gpt2-bpe` |
 | **Candle-Backend** | `rusty_ai_backend_candle`: CPU/CUDA-**Matmul**, **FP8 E4M3**, Referenz-**All-Reduce**; optional `rusty_ai` mit `--features candle` / `candle-cuda` |
 | **Agent (`rusty_ai_agent`)** | `LlmBackend`, Tool-JSON, Policy, optional **`http`** (OpenAI-kompatibel) und **`real-exec`** — Details: [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md) |
+| **Agent: Betrieb (Phase 3)** | Benannte Policies (`RUSTY_AI_AGENT_POLICY`), [`BatchReport`](rusty_ai_agent/src/batch_report.rs) für CI-Artefakte, [`BudgetLlmBackend`](rusty_ai_agent/src/budget.rs) für Token-/Aufruf-Limits — siehe [`rusty_ai_agent/README.md`](rusty_ai_agent/README.md#phase-3-betrieb-und-ci), [`SECURITY.md`](rusty_ai_agent/SECURITY.md) |
 
 ---
 
@@ -114,7 +115,7 @@ Die **fachliche** Roadmap (IDE/Orchestrierung, Phasen 0–4) steht in **[`docs/A
 | Phase | Richtung |
 | ----- | -------- |
 | **0–1** | `LlmBackend`, Tool-Protokoll, HTTP/SSE, Retry, Telemetrie, Fallback — im Workspace weitgehend umgesetzt (`rusty_ai_agent`) |
-| **2+** | Workspace-Index (`rusty_ai_workspace`), Diagnosen/Prompts/Test-`argv` (`rusty_ai_agent`) — CI-Modi später |
+| **2–3** | Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache — siehe Roadmap |
 
 Im **ML-/LLM-Kern** bleiben bewusst **TODOs** für Dinge wie vollständiges GPU-Training, Streaming-Generate im `rusty_ai_llm`-Stil — siehe Kommentare in den Crates.
 
@@ -190,7 +191,7 @@ Manuelle Inferenz mit **`forward_prefill`** / **`forward_decode_step`** und **`K
 | **[`docs/ARCHITEKTUR_IDE_ROADMAP_B.md`](docs/ARCHITEKTUR_IDE_ROADMAP_B.md)** | Pfad B: Architektur, Roadmap |
 | **[`rusty_ai_agent/README.md`](rusty_ai_agent/README.md)** | Agent: Features, Beispiele, API |
 | **[`rusty_ai_agent/SECURITY.md`](rusty_ai_agent/SECURITY.md)** | Sicherheit (Allowlist, `run_cmd`) |
-| **[`rusty_ai_workspace/README.md`](rusty_ai_workspace/README.md)** | Workspace-Index, Embeddings-Feature |
+| **[`rusty_ai_workspace/README.md`](rusty_ai_workspace/README.md)** | Workspace-Index, Suche, optional `build_cached`, Embeddings (`CachingEmbeddingClient`) |
 | **[`docs/HANDBUCH.md`](docs/HANDBUCH.md)** | Zentrale Referenz: Crates, Abläufe, Glossar |
 | **[`docs/README.md`](docs/README.md)** | Index der `docs/`-Dateien |
 | **[`docs/BERICHT_PRÜFUNG.md`](docs/BERICHT_PRÜFUNG.md)** | Prüfbericht Scope-Erweiterung |

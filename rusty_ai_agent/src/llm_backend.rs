@@ -57,6 +57,17 @@ pub struct ModelToolCall {
     pub arguments: serde_json::Value,
 }
 
+/// Token-Nutzung wie von OpenAI-kompatiblen APIs geliefert (optional).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CompletionUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u32>,
+}
+
 /// Response from the model: assistant text and/or tool calls to execute.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompletionResponse {
@@ -66,6 +77,9 @@ pub struct CompletionResponse {
     pub tool_calls: Vec<ModelToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    /// Gesetzt z. B. von [`crate::OpenAiCompatBackend`] (Feature `http`), wenn die API `usage` liefert.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<CompletionUsage>,
 }
 
 /// Pluggable LLM (sync). Async wrappers can be added in the application crate.
@@ -96,6 +110,7 @@ mod tests {
                 }),
                 tool_calls: vec![],
                 finish_reason: Some("stop".into()),
+                usage: None,
             })
         }
     }

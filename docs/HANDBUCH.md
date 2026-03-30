@@ -154,6 +154,9 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | [`diagnostics`](../rusty_ai_agent/src/diagnostics.rs) | `parse_cargo_json_stream`, `parse_lsp_diagnostic_json`, `merge_diagnostics`, `format_for_prompt` |
 | [`prompts`](../rusty_ai_agent/src/prompts.rs) | `PromptKind`, `render_embedded`, `load_from_dir` — Vorlagen unter [`prompts/v1/`](../rusty_ai_agent/prompts/v1/) |
 | [`cargo_test`](../rusty_ai_agent/src/cargo_test.rs) | `CargoTestInvocation` — sicheres `argv` für `cargo test -p … -- filter` |
+| [`policy_catalog`](../rusty_ai_agent/src/policy_catalog.rs) | `PolicyCatalog`, `RUSTY_AI_AGENT_POLICY`, `AllowlistPolicy::preset_dev` / `preset_ci` |
+| [`batch_report`](../rusty_ai_agent/src/batch_report.rs) | `BatchReport`, `BatchStepRecord` — JSON/Markdown für CI-Batches |
+| [`budget`](../rusty_ai_agent/src/budget.rs) | `BudgetLlmBackend` — Limits für Aufrufe und Token (`CompletionUsage`) |
 
 **Sicherheit und Policy:** Siehe **[`rusty_ai_agent/SECURITY.md`](../rusty_ai_agent/SECURITY.md)**. **Architektur / Roadmap (Pfad B):** **[`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md)**.
 
@@ -169,14 +172,19 @@ Das Crate **führt standardmäßig kein Netzwerk** aus; optional **Feature `http
 | `cargo run -p rusty_ai_agent --example openai_smoke --features http` | Eine Chat-Completion (Cloud; Ollama: `-- --ollama`) |
 | `cargo run -p rusty_ai_agent --example openai_stream --features http` | SSE-Streaming |
 | `cargo run -p rusty_ai_agent --example cargo_test_demo` | Beispiel-`argv` für gezielte Tests |
+| `cargo run -p rusty_ai_agent --example batch_report_demo` | Beispiel-`BatchReport` (JSON/Markdown) |
 
 ---
 
 ### 2.9 `rusty_ai_workspace`
 
-**Verantwortung:** **Workspace-Index** für Retrieval vor LLM-Aufrufen (Pfad B, Phase 2): [`WorkspaceIndex::build`](../rusty_ai_workspace/src/lib.rs) lädt Textdateien unter einem Root (überspringt u. a. `target/`, `.git/`); Zeilen-Chunks mit Überlappung; [`search_substring`](../rusty_ai_workspace/src/lib.rs). Optional **Feature `embeddings`**: [`embeddings::HttpEmbeddingClient`](../rusty_ai_workspace/src/lib.rs), [`EmbeddingIndex::from_workspace`](../rusty_ai_workspace/src/lib.rs) und Cosinus-Top-k — **Netzwerk nur mit aktiviertem Feature** und konfiguriertem API-Endpunkt.
+**Verantwortung:** **Workspace-Index** für Retrieval vor LLM-Aufrufen (Pfad B, Phase 2): [`WorkspaceIndex::build`](../rusty_ai_workspace/src/lib.rs) lädt Textdateien unter einem Root (überspringt u. a. `target/`, `.git/`); Zeilen-Chunks mit Überlappung; [`search_substring`](../rusty_ai_workspace/src/lib.rs).
 
-**Beispiel:** `cargo run -p rusty_ai_workspace --example workspace_index_demo`
+**Phase 3 — Index-Cache:** [`WorkspaceIndex::build_cached`](../rusty_ai_workspace/src/lib.rs) schreibt unter einem wählbaren `cache_dir` ein Manifest (`index_manifest.json`) und `index_chunks.json`. Gültigkeit: gleicher Root-String, gleicher Fingerprint der [`IndexConfig`](../rusty_ai_workspace/src/lib.rs), unveränderte maximale Datei-Änderungszeit (`mtime`) über alle indexierten Dateien — sonst Neuaufbau; erzwungen auch mit `force_rebuild`. Kein separates Cargo-Feature nötig (nur zusätzliche IO-Pfade).
+
+**Embeddings (optional):** Feature **`embeddings`**: [`embeddings::HttpEmbeddingClient`](../rusty_ai_workspace/src/lib.rs), [`EmbeddingIndex::from_workspace`](../rusty_ai_workspace/src/lib.rs) und Cosinus-Top-k — **Netzwerk nur mit aktiviertem Feature** und konfiguriertem API-Endpunkt. **Phase 3:** [`CachingEmbeddingClient`](../rusty_ai_workspace/src/lib.rs) puffert Embeddings nach Text-Hash (In-Memory).
+
+**Beispiel:** `cargo run -p rusty_ai_workspace --example workspace_index_demo` — ausführlicher: [Crate-README](../rusty_ai_workspace/README.md).
 
 ---
 
@@ -241,8 +249,9 @@ Siehe `rusty_ai/examples/train_mini_gpt.rs`. KV-Cache wird für das Training nic
 5. **Robustheit:** [`FallbackBackend`](../rusty_ai_agent/src/fallback_backend.rs) (z. B. API ausgefallen → lokal); [`TimedBackend`](../rusty_ai_agent/src/telemetry.rs) + manuell `record_cargo_check` nach `run_cmd`.
 6. **Echte Ausführung:** nur mit Feature **`real-exec`** und [`RealExecutor::new`](../rusty_ai_agent/src/executor.rs) (Workspace-Root kanonisieren).
 7. **Kontext (Phase 2):** [`WorkspaceIndex`](../rusty_ai_workspace/src/lib.rs) für relevante Chunks; Compiler- und LSP-Ausgaben mit [`merge_diagnostics`](../rusty_ai_agent/src/diagnostics.rs) und [`format_for_prompt`](../rusty_ai_agent/src/diagnostics.rs) in die nächste Nachricht; System-Prompt aus [`render_embedded`](../rusty_ai_agent/src/prompts.rs); schnelle Tests mit [`CargoTestInvocation`](../rusty_ai_agent/src/cargo_test.rs) + `run_cmd`.
+8. **Betrieb (Phase 3):** [`PolicyCatalog`](../rusty_ai_agent/src/policy_catalog.rs) mit eingebauten Presets und Auswahl per **`RUSTY_AI_AGENT_POLICY`** (oder eigenes JSON + [`from_json_merging_builtin`](../rusty_ai_agent/src/policy_catalog.rs)) — die aktive [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs) vor jeder Tool-Ausführung verwenden. Für **CI/Nightly** ohne UI: Schritte in [`BatchReport`](../rusty_ai_agent/src/batch_report.rs) sammeln und als JSON/Markdown ablegen (Beispiel `batch_report_demo`). **Kosten-Schutz:** HTTP-Backend mit [`BudgetLlmBackend`](../rusty_ai_agent/src/budget.rs) umhüllen; [`CompletionUsage`](../rusty_ai_agent/src/llm_backend.rs) aus API-Antworten wird gezählt (siehe [`LocalTelemetry`](../rusty_ai_agent/src/telemetry.rs)). **Index:** bei wiederholten Läufen [`WorkspaceIndex::build_cached`](../rusty_ai_workspace/src/lib.rs) nutzen; Embeddings optional mit [`CachingEmbeddingClient`](../rusty_ai_workspace/src/lib.rs).
 
-Ausführliche Beispielbefehle: Abschnitt **2.8** und [`rusty_ai_agent/README.md`](../rusty_ai_agent/README.md).
+Ausführliche Beispielbefehle: Abschnitt **2.8**, Phase-3-Kurzüberblick im [Agent-README](../rusty_ai_agent/README.md#phase-3-betrieb-und-ci), Sicherheit in [`SECURITY.md`](../rusty_ai_agent/SECURITY.md).
 
 ---
 
@@ -289,12 +298,15 @@ CI (falls eingerichtet): siehe `.github/workflows/ci.yml`.
 | **WorkspaceIndex** | Zeilen-Chunks aus Dateien unter einem konfigurierbaren Root; Substring-Suche; optional HTTP-Embeddings (`rusty_ai_workspace`, Feature `embeddings`). |
 | **UnifiedDiagnostic** | Gemeinsames Format für rustc-/Cargo-JSON und LSP-Subset; `merge_diagnostics`, `format_for_prompt` (`rusty_ai_agent::diagnostics`). |
 | **CargoTestInvocation** | Validiertes `argv` für `cargo test -p … -- filter` ohne Shell (`rusty_ai_agent`). |
+| **PolicyCatalog** | Namen → [`AllowlistPolicy`](../rusty_ai_agent/src/policy.rs); Auswahl z. B. über `RUSTY_AI_AGENT_POLICY` (`rusty_ai_agent`). |
+| **BatchReport** | Serieller Bericht über LLM-/Tool-/Check-Schritte für CI (JSON/Markdown), ohne Terminal-UI (`rusty_ai_agent`). |
+| **BudgetLlmBackend** | Wrapper um [`LlmBackend`](../rusty_ai_agent/src/llm_backend.rs) mit harten Grenzen für Token- und Aufrufanzahl (`rusty_ai_agent`). |
 
 ---
 
 ## 7. Versionshinweise
 
-Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2-Bausteine** (Index, Diagnosen, Prompts, Test-`argv`): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
+Dieses Handbuch bezieht sich auf den Stand des Repositories zum Zeitpunkt der letzten Bearbeitung. Für API-Details sind die `rustdoc`-Kommentare in den Quellen und `cargo doc` maßgeblich. Ein **Einstiegsindex** für die Dokumentation liegt in [`README.md`](README.md) im gleichen Ordner; das **Projekt-README** liegt im Repository-Root. **Phase-2/3-Bausteine** (Index, Diagnosen, Prompts, Policies, Batch-Reports, Budgets, Cache): Abschnitte **2.8–2.9** und Roadmap in [`ARCHITEKTUR_IDE_ROADMAP_B.md`](ARCHITEKTUR_IDE_ROADMAP_B.md). Eine **Prüfzusammenfassung** zur Erweiterung (Checkpoints, GPT-2, Candle) steht in [`BERICHT_PRÜFUNG.md`](BERICHT_PRÜFUNG.md).
 
 ---
 

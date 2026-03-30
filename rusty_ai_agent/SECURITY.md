@@ -29,10 +29,21 @@ Für schnelle Schleifen ist `cargo test -p <crate> -- <filter>` üblich. Nutze [
 
 Mit Feature **`http`** ([`OpenAiCompatBackend`](src/openai_compat.rs)): TLS über das System-`reqwest`-Backend; **API-Keys** nur über Umgebungsvariablen oder sicheren Konfigurationskanal — nie in Repos oder Logs. Für Ollama lokal oft **ohne** Bearer-Token (`api_key` leer).
 
+## Policies pro Umgebung (Phase 3)
+
+- **[`PolicyCatalog`](src/policy_catalog.rs)** mit Presets **`dev`** / **`ci`** (`AllowlistPolicy::preset_dev` / `preset_ci`) und Auswahl per **`RUSTY_AI_AGENT_POLICY`** (Standard: `dev`).
+- Erweiterungen per JSON: Beispiel [`schemas/policy_catalog.example.json`](schemas/policy_catalog.example.json), Loader [`PolicyCatalog::from_json_merging_builtin`].
+- **Kein Ersatz für eine Sandbox:** Ein Policy-Name allein erhöht nicht die Isolation — weiterhin OS-/Container-Grenzen setzen.
+
+## Kosten / API-Limits (Phase 3)
+
+- **[`BudgetLlmBackend`](src/budget.rs):** `max_complete_calls` und `max_total_tokens` (aus [`CompletionUsage`] in der HTTP-Antwort).
+- **[`TimedBackend`](src/telemetry.rs)** kann Token-Zähler in [`LocalTelemetry::snapshot`] spiegeln (`total_tokens_reported`), wenn das Backend `usage` liefert.
+
 ## Checkliste vor Produktion
 
-- [ ] Policy pro Umgebung (Dev / CI) mit unterschiedlichen Allowlists
-- [ ] Maximale Tool-Runden / Token-Budgets
+- [ ] Policy pro Umgebung (Dev / CI) mit unterschiedlichen Allowlists — siehe [`PolicyCatalog`](src/policy_catalog.rs)
+- [ ] Maximale Tool-Runden / Token-Budgets — [`BudgetLlmBackend`](src/budget.rs)
 - [ ] Menschliche Freigabe für große `write_file`-Diffs (oder CI-only-Modus)
 
 ## Weiterführend

@@ -3,10 +3,14 @@
 //! - [`WorkspaceIndex::build`] — Dateien unter einem Root, Chunks mit Überlappung
 //! - [`WorkspaceIndex::search_substring`] — einfache Textsuche
 //! - Feature **`embeddings`**: HTTP-Embeddings (OpenAI-kompatibel) + Cosinus-Top-k
+//! - Phase 3: [`WorkspaceIndex::build_cached`] — optionaler Disk-Cache (Manifest + max. mtime)
 
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 fn path_has_ignored_segment(path: &Path) -> bool {
@@ -17,7 +21,7 @@ fn path_has_ignored_segment(path: &Path) -> bool {
 }
 
 /// Konfiguration für [`WorkspaceIndex::build`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct IndexConfig {
     /// Wurzelverzeichnis (rekursiv).
     pub root: PathBuf,
@@ -40,8 +44,8 @@ impl Default for IndexConfig {
     }
 }
 
-/// Ein Textausschnitt mit Positionsangabe (Zeilen **1-basiiert** für Anzeige).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Ein Textausschnitt mit Positionsangabe (Zeilen **1-basiert** für Anzeige).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextChunk {
     pub path: PathBuf,
     pub start_line: usize,
@@ -50,7 +54,7 @@ pub struct TextChunk {
 }
 
 /// Alle Chunks eines Workspaces.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WorkspaceIndex {
     chunks: Vec<TextChunk>,
 }
@@ -90,6 +94,56 @@ impl WorkspaceIndex {
         Ok(Self { chunks })
     }
 
+    /// Wie [`Self::build`], aber lädt/speichert unter `cache_dir`, wenn Manifest + `max_mtime` zur aktuellen Dateiwelt passen.
+    ///
+    /// Bei `force_rebuild == true` oder veraltetem Cache: neu bauen und schreiben.
+    pub fn build_cached(
+        config: &IndexConfig,
+        cache_dir: &Path,
+        force_rebuild: bool,
+    ) -> Result<Self, std::io::Error> {
+        fs::create_dir_all(cache_dir)?;
+        let current_max = scan_max_mtime_secs(config)?;
+        let fp = fingerprint_index_config(config);
+        let manifest_path = cache_dir.join("index_manifest.json");
+        let chunks_path = cache_dir.join("index_chunks.json");
+
+        if !force_rebuild && manifest_path.exists() && chunks_path.exists() {
+            let m: IndexManifest = serde_json::from_str(&fs::read_to_string(&manifest_path)?)?;
+            let root_s = config.root.to_string_lossy();
+            if m.version == 1
+                && m.root == root_s.as_ref()
+                && m.config_fingerprint == fp
+                && m.max_mtime_secs == current_max
+            {
+                let data = fs::read_to_string(&chunks_path)?;
+                let index: WorkspaceIndex = serde_json::from_str(&data)?;
+                return Ok(index);
+            }
+        }
+
+        let index = Self::build(config)?;
+        let manifest = IndexManifest {
+            version: 1,
+            root: config.root.to_string_lossy().into_owned(),
+            config_fingerprint: fp,
+            max_mtime_secs: current_max,
+        };
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+            })?,
+        )?;
+        fs::write(
+            &chunks_path,
+            serde_json::to_string_pretty(&index).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+            })?,
+        )?;
+        Ok(index)
+    }
+
     /// Substring-Suche über alle Chunks (`query` leer → leeres Ergebnis).
     pub fn search_substring<'a>(
         &'a self,
@@ -115,6 +169,52 @@ impl WorkspaceIndex {
             })
             .collect()
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct IndexManifest {
+    version: u32,
+    root: String,
+    config_fingerprint: u64,
+    max_mtime_secs: u64,
+}
+
+fn fingerprint_index_config(config: &IndexConfig) -> u64 {
+    let mut h = DefaultHasher::new();
+    config.hash(&mut h);
+    h.finish()
+}
+
+fn scan_max_mtime_secs(config: &IndexConfig) -> Result<u64, std::io::Error> {
+    let mut max = 0u64;
+    for entry in WalkDir::new(&config.root)
+        .into_iter()
+        .filter_entry(|e| !path_has_ignored_segment(e.path()))
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_dir() {
+            continue;
+        }
+        if let Some(exts) = &config.extensions {
+            let ext = path
+                .extension()
+                .and_then(|x| x.to_str())
+                .unwrap_or("");
+            if !exts.iter().any(|e| e == ext) {
+                continue;
+            }
+        }
+        let meta = fs::metadata(path)?;
+        if let Ok(t) = meta.modified() {
+            let secs = t
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            max = max.max(secs);
+        }
+    }
+    Ok(max)
 }
 
 fn push_chunks(
@@ -171,6 +271,8 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 pub mod embeddings {
     //! OpenAI-kompatibles HTTP-Embeddings (`POST …/embeddings`).
 
+    use std::collections::hash_map::DefaultHasher;
+
     use super::{cosine_similarity, TextChunk, WorkspaceIndex};
     use serde::Deserialize;
 
@@ -222,6 +324,59 @@ pub mod embeddings {
     /// HTTP-Client (`reqwest` blocking).
     pub struct HttpEmbeddingClient {
         pub config: OpenAiEmbeddingConfig,
+    }
+
+    /// In-Memory-Cache pro Text-Hash (std-only); reduziert API-Aufrufe bei wiederholten Chunks.
+    pub struct CachingEmbeddingClient<C> {
+        pub inner: C,
+        cache: std::sync::Mutex<std::collections::HashMap<u64, Vec<f32>>>,
+    }
+
+    impl<C> CachingEmbeddingClient<C> {
+        pub fn new(inner: C) -> Self {
+            Self {
+                inner,
+                cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+            }
+        }
+    }
+
+    fn hash_embed_text(s: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        s.hash(&mut h);
+        h.finish()
+    }
+
+    impl<C: EmbeddingClient> EmbeddingClient for CachingEmbeddingClient<C> {
+        fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+            let mut out = Vec::with_capacity(texts.len());
+            for t in texts {
+                let key = hash_embed_text(t);
+                let mut cache = self
+                    .cache
+                    .lock()
+                    .map_err(|e| EmbeddingError(e.to_string()))?;
+                if let Some(v) = cache.get(&key) {
+                    out.push(v.clone());
+                } else {
+                    drop(cache);
+                    let v = self
+                        .inner
+                        .embed_batch(&[*t])?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| EmbeddingError("empty embedding batch".into()))?;
+                    cache = self
+                        .cache
+                        .lock()
+                        .map_err(|e| EmbeddingError(e.to_string()))?;
+                    cache.insert(key, v.clone());
+                    out.push(v);
+                }
+            }
+            Ok(out)
+        }
     }
 
     impl EmbeddingClient for HttpEmbeddingClient {

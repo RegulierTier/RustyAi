@@ -134,6 +134,7 @@ mod tests {
                     arguments: json!({}),
                 }],
                 finish_reason: Some("tool_calls".into()),
+                usage: None,
             },
             CompletionResponse {
                 message: None,
@@ -143,6 +144,7 @@ mod tests {
                     arguments: json!({ "path": "rusty_ai_agent/src/lib.rs" }),
                 }],
                 finish_reason: Some("tool_calls".into()),
+                usage: None,
             },
         ]);
         let req = CompletionRequest {
@@ -174,6 +176,7 @@ mod tests {
                     arguments: json!({}),
                 }],
                 finish_reason: Some("tool_calls".into()),
+                usage: None,
             },
             CompletionResponse {
                 message: None,
@@ -183,6 +186,7 @@ mod tests {
                     arguments: json!({ "path": "rusty_ai_agent/src/lib.rs" }),
                 }],
                 finish_reason: Some("tool_calls".into()),
+                usage: None,
             },
         ]);
         let req = CompletionRequest {
@@ -209,6 +213,7 @@ mod tests {
                 arguments: json!({}),
             }],
             finish_reason: None,
+            usage: None,
         }]);
         let req = CompletionRequest {
             messages: vec![ChatMessage {

@@ -47,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 arguments: json!({ "path": "x" }),
             }],
             finish_reason: Some("tool_calls".into()),
+            usage: None,
         },
         CompletionResponse {
             message: None,
@@ -56,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 arguments: json!({ "path": "rusty_ai_agent/src/lib.rs" }),
             }],
             finish_reason: Some("tool_calls".into()),
+            usage: None,
         },
     ]);
 

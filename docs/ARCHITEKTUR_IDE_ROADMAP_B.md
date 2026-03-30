@@ -123,7 +123,7 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 **Phase 1 (RustyAi `rusty_ai_agent`):** abgeschlossen. ~~HTTP-Backend~~, ~~**SEARCH/REPLACE**~~, ~~**SSE / Tool-Stream**~~, ~~**Retry-Text**~~, ~~**Replace-Vorschau**~~, ~~**Turn-Schleife**~~, ~~**Fallback-Backends**~~, ~~**lokale Telemetrie**~~.
 
-**Nächster Schritt:** **Phase 3** (Policies pro Umgebung, CI-/Batch-Modus, …); produktseitig weiterhin **Diff-View** in der IDE (kein Crate). Phase-2-Referenzimplementierung siehe unten (Checkboxen).
+**Nächster Schritt:** **Phase 4** (optional: Feintuning außerhalb RustyAi, RustyAi-Kern-Erweiterungen); produktseitig weiterhin **Diff-View** in der IDE (kein Crate). Phase-3-Referenzimplementierung siehe unten (Checkboxen).
 
 ### Phase 2 — Kontext und Qualität
 
@@ -138,9 +138,9 @@ Die Phasen sind **priorisiert** für einen schrittweise wachsenden Nutzen; konkr
 
 ### Phase 3 — Skalierung und Betrieb
 
-- [ ] **Policies** pro Umgebung (Dev / CI): unterschiedliche Tool-Allowlists.
-- [ ] **Batch-/CI-Modus:** Aufgaben ohne interaktive UI (z. B. Nightly-Migrations-Vorschläge mit Report).
-- [ ] Optional: **Caching** von Index und Embedding; **Kosten-Limits** bei API-Backends.
+- [x] **Policies** pro Umgebung (Dev / CI): [`PolicyCatalog`](../rusty_ai_agent/src/policy_catalog.rs), `RUSTY_AI_AGENT_POLICY`, [`AllowlistPolicy::preset_dev`](../rusty_ai_agent/src/policy.rs) / [`preset_ci`](../rusty_ai_agent/src/policy.rs), Beispiel [`policy_catalog.example.json`](../rusty_ai_agent/schemas/policy_catalog.example.json).
+- [x] **Batch-/CI-Modus:** [`BatchReport`](../rusty_ai_agent/src/batch_report.rs) (JSON/Markdown), Beispiel [`batch_report_demo`](../rusty_ai_agent/examples/batch_report_demo.rs).
+- [x] Optional: **Caching** — [`WorkspaceIndex::build_cached`](../rusty_ai_workspace/src/lib.rs), [`CachingEmbeddingClient`](../rusty_ai_workspace/src/lib.rs) (Feature `embeddings`); **Kosten-Limits** — [`BudgetLlmBackend`](../rusty_ai_agent/src/budget.rs), [`CompletionUsage`](../rusty_ai_agent/src/llm_backend.rs) aus HTTP-Antworten, [`LocalTelemetry::total_tokens_reported`](../rusty_ai_agent/src/telemetry.rs).
 
 **Erfolgskriterium:** Betreibbarkeit im Team (mehrere Nutzer/Repo-Klon) ohne Sicherheits- und Kosten-Chaos.
 

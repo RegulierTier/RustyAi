@@ -38,3 +38,6 @@ name = "telemetry_demo"
 
 [[example]]
 name = "cargo_test_demo"
+
+[[example]]
+name = "batch_report_demo"

@@ -138,6 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments: serde_json::json!({ "path": "rusty_ai_agent/src/lib.rs" }),
         }],
         finish_reason: Some("tool_calls".into()),
+        usage: None,
     }]);
 
     println!("=== Demo 1: allowlisted read_file ===");
@@ -163,6 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments: serde_json::json!({ "path": "../secrets" }),
         }],
         finish_reason: Some("tool_calls".into()),
+        usage: None,
     }]);
 
     println!("=== Demo 2: rejected path (parent dir) ===");
@@ -194,6 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         }],
         finish_reason: Some("tool_calls".into()),
+        usage: None,
     }]);
 
     println!("=== Demo 3: cargo check (dry-run or real) ===");

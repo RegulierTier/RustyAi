@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::llm_backend::{CompletionRequest, CompletionResponse, LlmBackend};
+use crate::llm_backend::{CompletionRequest, CompletionResponse, CompletionUsage, LlmBackend};
 use crate::LlmError;
 
 /// Thread-sichere Zähler für eine Agent-Session (nur Prozess-lokal).
@@ -19,6 +19,8 @@ pub struct LocalTelemetry {
     cargo_check_runs: AtomicU64,
     /// Anzahl **erfolgreicher** gemeldeter Läufe (Exit ok).
     cargo_check_ok: AtomicU64,
+    /// Kumulativ gemeldete Tokens aus [`CompletionUsage`] (HTTP-Backends).
+    total_tokens_reported: AtomicU64,
 }
 
 impl LocalTelemetry {
@@ -31,6 +33,22 @@ impl LocalTelemetry {
         self.cargo_check_runs.fetch_add(1, Ordering::Relaxed);
         if ok {
             self.cargo_check_ok.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Nach [`LlmBackend::complete`], wenn die Antwort [`CompletionUsage`] enthält (z. B. OpenAI).
+    pub fn record_completion_usage(&self, usage: &Option<CompletionUsage>) {
+        let Some(u) = usage else {
+            return;
+        };
+        let add = if let Some(t) = u.total_tokens {
+            t as u64
+        } else {
+            u.prompt_tokens.unwrap_or(0) as u64 + u.completion_tokens.unwrap_or(0) as u64
+        };
+        if add > 0 {
+            self.total_tokens_reported
+                .fetch_add(add, Ordering::Relaxed);
         }
     }
 
@@ -53,6 +71,7 @@ impl LocalTelemetry {
             tool_parse_retry_turns: self.tool_parse_retry_turns.load(Ordering::Relaxed),
             cargo_check_runs: self.cargo_check_runs.load(Ordering::Relaxed),
             cargo_check_ok: self.cargo_check_ok.load(Ordering::Relaxed),
+            total_tokens_reported: self.total_tokens_reported.load(Ordering::Relaxed),
         }
     }
 }
@@ -66,6 +85,7 @@ pub struct TelemetrySnapshot {
     pub tool_parse_retry_turns: u64,
     pub cargo_check_runs: u64,
     pub cargo_check_ok: u64,
+    pub total_tokens_reported: u64,
 }
 
 /// [`LlmBackend`]-Wrapper: misst [`LlmBackend::complete`] und schreibt in [`LocalTelemetry`].
@@ -92,6 +112,9 @@ impl<B: LlmBackend> LlmBackend for TimedBackend<B> {
         self.telemetry
             .total_latency_ms
             .fetch_add(ms, Ordering::Relaxed);
+        if let Ok(ref resp) = out {
+            self.telemetry.record_completion_usage(&resp.usage);
+        }
         out
     }
 }
@@ -117,6 +140,7 @@ mod tests {
                 }),
                 tool_calls: vec![],
                 finish_reason: Some("stop".into()),
+                usage: None,
             })
         }
     }
@@ -149,5 +173,6 @@ mod tests {
         let s = tel.snapshot();
         assert_eq!(s.cargo_check_runs, 2);
         assert_eq!(s.cargo_check_ok, 1);
+        assert_eq!(s.total_tokens_reported, 0);
     }
 }
